@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Registro de horas · Mundo Social</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">Mundo Social <span>· Registro de horas</span></div>
+    <div id="sesion" class="sesion" hidden>
+      <span id="sesion-nombre"></span>
+      <button id="btn-salir" class="btn-texto" type="button">Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Ingreso -->
+    <section id="vista-login" class="tarjeta angosta">
+      <h1>Ingresar</h1>
+      <p class="sutil">Usa el código de acceso personal que te dio tu coordinador.</p>
+      <form id="form-login" autocomplete="off">
+        <label>Código de acceso
+          <input id="login-codigo" type="password" required minlength="6" autocomplete="current-password">
+        </label>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+    </section>
+
+    <!-- App -->
+    <div id="app" hidden>
+      <nav class="pestanas" id="pestanas">
+        <button data-vista="registrar" class="activa" type="button">Registrar</button>
+        <button data-vista="mis-horas" type="button">Mis horas</button>
+        <button data-vista="revisar" data-rol="revisor" type="button" hidden>Por aprobar</button>
+        <button data-vista="resumen" type="button">Totales</button>
+      </nav>
+
+      <section id="vista-registrar" class="tarjeta vista">
+        <h2>Registrar horas</h2>
+        <form id="form-registro">
+          <div class="fila">
+            <label>Fecha <input name="fecha" type="date" required></label>
+            <label>Horas <input name="horas" type="number" min="0.25" max="24" step="0.25" required placeholder="p. ej. 2.5"></label>
+          </div>
+          <label>Área o proyecto <select name="area" required></select></label>
+          <label>Descripción <textarea name="descripcion" rows="3" maxlength="1000" required placeholder="¿Qué hiciste?"></textarea></label>
+          <label>Enlace <span class="sutil">(opcional: artículo, documento, publicación…)</span>
+            <input name="enlace" type="url" maxlength="500" placeholder="https://">
+          </label>
+          <button class="btn" type="submit">Guardar</button>
+        </form>
+      </section>
+
+      <section id="vista-mis-horas" class="tarjeta vista" hidden>
+        <div class="cabecera">
+          <h2>Mis horas</h2>
+          <label class="en-linea">Mes <input id="mis-mes" type="month"></label>
+        </div>
+        <div id="mis-totales" class="cifras"></div>
+        <div class="tabla-envoltura">
+          <table>
+            <thead><tr><th>Fecha</th><th>Horas</th><th>Área</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="mis-tabla"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="vista-revisar" class="tarjeta vista" hidden>
+        <div class="cabecera">
+          <h2>Horas por aprobar</h2>
+          <div class="filtros">
+            <label class="en-linea">Estado
+              <select id="rev-estado">
+                <option value="pendiente">Pendientes</option>
+                <option value="aprobado">Aprobadas</option>
+                <option value="rechazado">Rechazadas</option>
+                <option value="">Todas</option>
+              </select>
+            </label>
+            <label class="en-linea">Mes <input id="rev-mes" type="month"></label>
+          </div>
+        </div>
+        <p class="sutil" id="rev-alcance"></p>
+        <div class="acciones-lote">
+          <button id="rev-aprobar-sel" class="btn" type="button" disabled>Aprobar seleccionadas</button>
+        </div>
+        <div class="tabla-envoltura">
+          <table>
+            <thead><tr><th><input type="checkbox" id="rev-todas" aria-label="Seleccionar todas"></th><th>Miembro</th><th>Fecha</th><th>Horas</th><th>Área</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="rev-tabla"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="vista-resumen" class="tarjeta vista" hidden>
+        <div class="cabecera">
+          <h2>Totales</h2>
+          <div class="filtros">
+            <label class="en-linea">Desde <input id="res-desde" type="month"></label>
+            <label class="en-linea">Hasta <input id="res-hasta" type="month"></label>
+            <label class="en-linea"><input id="res-aprobadas" type="checkbox"> Solo aprobadas</label>
+          </div>
+        </div>
+        <p class="sutil" id="res-alcance"></p>
+        <div id="res-cifras" class="cifras"></div>
+        <h3>Por persona y mes</h3>
+        <div class="tabla-envoltura">
+          <table>
+            <thead><tr><th>Mes</th><th>Miembro</th><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+            <tbody id="res-persona"></tbody>
+          </table>
+        </div>
+        <div class="dos-columnas">
+          <div>
+            <h3>Por área o proyecto</h3>
+            <div class="tabla-envoltura"><table>
+              <thead><tr><th>Área</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+              <tbody id="res-area"></tbody>
+            </table></div>
+          </div>
+          <div>
+            <h3>Por equipo</h3>
+            <div class="tabla-envoltura"><table>
+              <thead><tr><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+              <tbody id="res-equipo"></tbody>
+            </table></div>
+          </div>
+        </div>
+        <button id="res-csv" class="btn secundario" type="button">Descargar CSV (por persona y mes)</button>
+      </section>
+    </div>
+  </main>
+
+  <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
