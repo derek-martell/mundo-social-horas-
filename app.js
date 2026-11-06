@@ -1093,7 +1093,8 @@
     const fondo = $('#dialogo-tarea');
     $('#dt-titulo-dialogo').textContent = t ? 'Editar tarea' : 'Nueva tarea';
     $('#dt-ok').textContent = t ? 'Guardar' : 'Asignar';
-    $('#dt-para').innerHTML = S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : ''}</option>`).join('');
+    const yo = S.usuario.rol === 'admin' ? `<option value="${esc(S.usuario.id)}">Yo (${esc(S.usuario.nombre)})</option>` : '';
+    $('#dt-para').innerHTML = yo + S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : ''}</option>`).join('');
     $('#dt-para').disabled = !!t;
     if (t) {
       if (!S.equipo.some((m) => m.id === t.asignada_a_id)) $('#dt-para').innerHTML = `<option value="${esc(t.asignada_a_id)}">${esc(t.asignada_a)}</option>`;
@@ -1129,8 +1130,10 @@
         else await api('crearTarea', d);
         fondo.hidden = true;
         const m = S.equipo.find((x) => x.id === d.asignada_a_id);
-        aviso(t ? 'Tarea actualizada.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
-        S.vistaTareas = 'asignadas';
+        const propia = d.asignada_a_id === S.usuario.id;
+        aviso(t ? 'Tarea actualizada.' : propia ? 'Tarea agregada a tus tareas.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
+        S.vistaTareas = propia ? 'mias' : 'asignadas';
+        if (propia) cargarMisTareas();
         if (S.pagina === 'tareas') cargarTareas(); else location.hash = 'tareas';
       } catch (e) {
         aviso(e.message, true);

@@ -250,7 +250,8 @@
     },
     crearTarea(u, d) {
       const b = MIEMBROS.find((m) => m.id === d.asignada_a_id);
-      if (!b || !puedeRevisar(u, b.id, b.area)) throw new ErrorDemo('No puedes asignar tareas a esa persona.');
+      const aSiMismo = b && b.id === u.id && u.rol === 'admin';
+      if (!b || !(aSiMismo || puedeRevisar(u, b.id, b.area))) throw new ErrorDemo('No puedes asignar tareas a esa persona.');
       const t = Object.assign({ id: uuid(), creada: new Date().toISOString(), asignada_por_id: u.id, asignada_por: u.nombre,
         asignada_a_id: b.id, asignada_a: b.nombre, area: b.area, estado: 'pendiente', completada_en: '', nota: '' }, validarTarea(d));
       tareas.push(t);
