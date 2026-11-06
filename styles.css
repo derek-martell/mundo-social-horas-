@@ -411,6 +411,70 @@ td.barra-celda { width: 45%; vertical-align: middle; }
 }
 .flotante svg { width: 26px; height: 26px; stroke-width: 2.5; }
 
+/* ---------- tareas ---------- */
+.segmentos { display: flex; background: var(--panel-2); border-radius: 999px; padding: 3px; gap: 2px; }
+.segmentos button { border: 0; background: none; font: 600 13px var(--fuente); color: var(--sutil); padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+.segmentos button.activa { background: var(--panel); color: var(--acento); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.tar-lista { display: grid; gap: 24px; }
+.grupo-tareas { display: grid; gap: 8px; }
+.grupo-cab { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.grupo-cab h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.grupo-cab .sutil { font-size: 13px; }
+.grupo-cab.vencidas h3 { color: var(--rech); }
+.progreso { flex: 1 1 120px; max-width: 220px; height: 6px; border-radius: 3px; background: var(--linea-suave); overflow: hidden; align-self: center; }
+.progreso span { display: block; height: 100%; background: var(--ok); }
+.tarea {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: start;
+  padding: 12px 14px; border: 1px solid var(--linea); border-radius: 14px; background: var(--panel);
+}
+.tarea.alta { border-left: 4px solid var(--rech); padding-left: 11px; }
+.tarea.hecha, .tarea.cancelada { background: var(--panel-2); }
+.tarea.hecha h4, .tarea.cancelada h4 { color: var(--sutil); text-decoration: line-through; }
+.tarea h4 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.tarea p { margin: 4px 0 0; color: var(--sutil); font-size: 13px; overflow-wrap: anywhere; }
+.tarea .nota-tarea { margin-top: 6px; font-size: 13px; color: var(--texto); background: var(--panel-2); border-radius: 8px; padding: 6px 10px; }
+.tarea-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--sutil); align-items: center; }
+.tarea-meta .vence { color: var(--rech); font-weight: 600; }
+.tarea-meta .alta-chip { color: var(--rech); font-weight: 600; }
+.tarea-acciones { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.check {
+  width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--sutil); background: none; cursor: pointer;
+  display: grid; place-items: center; margin-top: 1px; color: transparent; padding: 0;
+}
+.check:hover { border-color: var(--ok); color: var(--ok); }
+.check.marcado { background: var(--ok); border-color: var(--ok); color: #fff; }
+.check svg { width: 14px; height: 14px; stroke-width: 3; }
+.check-vacio { width: 24px; }
+.estado.en_progreso { background: var(--acento-suave); color: var(--acento); }
+.estado.hecha { background: var(--ok-suave); color: var(--ok); }
+.estado.cancelada { background: var(--panel-2); color: var(--sutil); }
+.vacio-tareas { text-align: center; color: var(--sutil); padding: 32px 16px; }
+
+.metas { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; }
+.metas li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; padding: 4px 4px; border-radius: 8px; }
+.metas li:hover { background: var(--panel-2); }
+.metas .check { width: 18px; height: 18px; border-width: 2px; }
+.metas .check svg { width: 11px; height: 11px; }
+.metas span { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.metas small { display: block; color: var(--sutil); font-size: 11px; }
+.metas small.vence { color: var(--rech); font-weight: 600; }
+.metas .vacio { color: var(--sutil); font-size: 13px; grid-template-columns: 1fr; }
+.ver-todas { font-size: 13px; font-weight: 600; text-decoration: none; }
+
+.dialogo.ancho { max-width: 520px; }
+.campo-etiqueta { font-weight: 600; font-size: 13px; margin-bottom: -6px; }
+.dialogo .selector { width: 100%; }
+.plazos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.plazos label { cursor: pointer; }
+.plazos input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+.plazos label > span {
+  display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--linea); border-radius: 12px; font-weight: 600; font-size: 13px; height: 100%;
+}
+.plazos small { font-weight: 400; color: var(--sutil); font-size: 12px; }
+.plazos small input { font: inherit; border: 1px solid var(--linea); border-radius: 6px; padding: 2px 4px; background: var(--panel); width: 100%; }
+.plazos input[type=radio]:checked + span { border-color: var(--acento); background: var(--acento-suave); color: var(--acento); }
+.plazos input[type=radio]:focus-visible + span { outline: 2px solid var(--acento); outline-offset: 2px; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .nav a span { display: none; }
@@ -429,6 +493,9 @@ td.barra-celda { width: 45%; vertical-align: middle; }
   .dos-columnas { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
+  .tarea { grid-template-columns: 28px minmax(0, 1fr); }
+  .tarea-acciones { grid-column: 2; justify-content: flex-start; }
+  .plazos { grid-template-columns: 1fr; }
   .top { flex-wrap: wrap; row-gap: 4px; padding-left: max(4px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
   .top .logo { display: none; }
   .top .espacio { flex-basis: 100%; height: 0; }

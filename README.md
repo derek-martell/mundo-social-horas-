@@ -42,6 +42,15 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 - **Totales:** horas por persona y mes (con su **rol**) y por área. El admin ve todo el grupo; el coordinador, su área. Se puede filtrar por rango de meses, por rol (solo coordinadores, solo miembros…) o solo aprobadas.
 - **Descargar Excel:** baja un `.xlsx` con los mismos filtros de la pantalla y tres hojas (*Por persona y mes*, *Por área* y *Detalle* con cada registro). Cada hoja ya trae los filtros puestos en los encabezados: haz clic en la flechita de una columna para filtrar por persona, rol, área, estado o fecha.
 
+### Tareas y metas
+
+- **Quién asigna a quién:** igual que en la aprobación de horas. El coordinador asigna tareas a los miembros de su área; el admin, a los coordinadores (y a quien esté en un área sin coordinador).
+- **Nueva tarea:** a quién, qué (y un detalle opcional), plazo (**esta semana**, **fin de mes** u otra fecha) y si es de prioridad alta.
+- **Mis tareas:** cada persona ve sus tareas agrupadas en *Vencidas*, *Esta semana*, *Este mes*, *Más adelante* y *Terminadas*. Puede empezarlas, marcarlas como hechas, dejar una nota y **registrar horas ligadas a la tarea** (las horas dedicadas se suman solas).
+- **Metas de esta semana:** en el panel lateral del calendario, con un clic para marcarlas como hechas. La pestaña *Tareas* muestra cuántas quedan.
+- **Asignadas por mí:** el avance de cada persona (cuántas hechas, horas dedicadas, vencidas). Quien asignó la tarea puede editarla, cancelarla, reabrirla o eliminarla. El admin además ve **Todo el grupo**.
+- En el Excel de Totales, la hoja *Detalle* incluye la tarea de cada registro.
+
 ## Puesta en marcha
 
 ### 1. Crear el Google Sheet
@@ -55,9 +64,10 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 2. (Opcional) En **Configuración del proyecto ⚙️**, marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`apps-script/appsscript.json`](apps-script/appsscript.json). Así quedan fijados la zona horaria (Lima) y el runtime V8.
 3. Guarda el proyecto.
 4. En la barra superior, elige la función **`configurar`** y pulsa **Ejecutar**. La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
-   Esto crea dos hojas:
+   Esto crea tres hojas:
    - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo`, con tres filas de ejemplo.
    - **Registros:** aquí se guardan las horas. No hace falta tocarla.
+   - **Tareas:** las tareas y metas asignadas. Tampoco hace falta tocarla.
 5. Recarga el Sheet. Aparece el menú **Registro de horas** con las opciones *Configurar hojas* y *Generar códigos faltantes*.
 
 ### 3. Cargar a los miembros

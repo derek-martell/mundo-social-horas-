@@ -90,7 +90,67 @@
     }
   })();
 
+  // ---------- Tareas de ejemplo ----------
+  const tareas = [];
+  (function sembrarTareas() {
+    const [y, mo, d] = hoyStr().split('-').map(Number);
+    const hoy = new Date(y, mo - 1, d);
+    const finSemana = ymd(new Date(y, mo - 1, d + ((7 - hoy.getDay()) % 7)));
+    const finMes = ymd(new Date(y, mo, 0));
+    const hace = (n) => ymd(new Date(y, mo - 1, d - n));
+    const quien = (id) => MIEMBROS.find((m) => m.id === id);
+    const nueva = (de, para, titulo, descripcion, tipo, prioridad, estado, plazoFijo) => {
+      const a = quien(de), b = quien(para);
+      const t = {
+        id: uuid(), creada: new Date(y, mo - 1, d - 8).toISOString(), asignada_por_id: a.id, asignada_por: a.nombre,
+        asignada_a_id: b.id, asignada_a: b.nombre, area: b.area, titulo, descripcion,
+        plazo: plazoFijo || (tipo === 'semana' ? finSemana : finMes), tipo_plazo: plazoFijo ? 'fecha' : tipo,
+        prioridad, estado, completada_en: estado === 'hecha' ? new Date(y, mo - 1, d - 1).toISOString() : '', nota: '',
+      };
+      tareas.push(t);
+      // Liga algunas horas recientes de la persona a la tarea
+      registros.filter((r) => r.miembro_id === b.id && !r.tarea_id && r.estado !== 'rechazado')
+        .sort(ordenar).slice(0, estado === 'pendiente' ? 0 : 2).forEach((r) => { r.tarea_id = t.id; });
+      return t;
+    };
+    nueva('m02', 'm03', 'Nota sobre la inflación de noviembre', 'Usar el dato del INEI que sale el día 1. Incluir gráfico de Lima Metropolitana.', 'semana', 'alta', 'en_progreso');
+    nueva('m02', 'm03', 'Revisar cifras de empleo formal', 'Contrastar con la planilla electrónica antes de publicar.', 'semana', 'normal', 'pendiente');
+    nueva('m02', 'm03', 'Explicador del tipo de cambio', '', 'mes', 'normal', 'hecha');
+    nueva('m02', 'm04', 'Procesar la ENAHO: pobreza regional', 'Tabla por departamento con factores de expansión.', 'mes', 'alta', 'en_progreso');
+    nueva('m02', 'm04', 'Borrador sobre informalidad juvenil', 'Primera versión para revisión.', 'fecha', 'normal', 'pendiente', hace(2));
+    nueva('m05', 'm06', 'Calendario de publicaciones de diciembre', '', 'mes', 'normal', 'pendiente');
+    nueva('m05', 'm06', 'Hilo sobre precios de alimentos', '', 'semana', 'normal', 'hecha');
+    nueva('m07', 'm08', 'Infografía de empleo formal', 'Formato vertical para redes y horizontal para la web.', 'semana', 'alta', 'en_progreso');
+    nueva('m01', 'm02', 'Cerrar la edición de noviembre', 'Todas las notas del mes revisadas y publicadas.', 'mes', 'alta', 'en_progreso');
+    nueva('m01', 'm05', 'Reporte de alcance en redes', 'Alcance e interacciones de la semana.', 'semana', 'normal', 'pendiente');
+    nueva('m01', 'm07', 'Plantillas nuevas para gráficos', '', 'mes', 'normal', 'hecha');
+    nueva('m01', 'm09', 'Base de datos de pobreza por distrito', 'Investigación no tiene coordinador: me reportas a mí.', 'mes', 'normal', 'pendiente');
+  })();
+
   class ErrorDemo extends Error {}
+
+  const ESTADOS_TAREA = ['pendiente', 'en_progreso', 'hecha', 'cancelada'];
+  const horasDe = (id) => registros.filter((r) => r.tarea_id === id && r.estado !== 'rechazado').reduce((a, r) => a + r.horas, 0);
+  const conHoras = (t) => Object.assign(copia(t), { horas: horasDe(t.id) });
+  const abierta = (t) => t.estado !== 'hecha' && t.estado !== 'cancelada';
+  const ordenTareas = (a, b) => (abierta(b) - abierta(a)) || (abierta(a) ? a.plazo.localeCompare(b.plazo) : b.plazo.localeCompare(a.plazo));
+  function validarTarea(d, plazoAnterior) {
+    const titulo = String(d.titulo || '').trim();
+    if (titulo.length < 3 || titulo.length > 150) throw new ErrorDemo('El título debe tener entre 3 y 150 caracteres.');
+    const descripcion = String(d.descripcion || '').trim().slice(0, 1000);
+    const plazo = String(d.plazo || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(plazo)) throw new ErrorDemo('Indica el plazo.');
+    if (plazo < hoyStr() && plazo !== plazoAnterior) throw new ErrorDemo('El plazo no puede estar en el pasado.');
+    return { titulo, descripcion, plazo,
+      tipo_plazo: ['semana', 'mes', 'fecha'].includes(d.tipo_plazo) ? d.tipo_plazo : 'fecha',
+      prioridad: d.prioridad === 'alta' ? 'alta' : 'normal' };
+  }
+  function tareaLigable(u, id) {
+    if (!id) return '';
+    const t = tareas.find((x) => x.id === id);
+    if (!t || t.asignada_a_id !== u.id || t.estado === 'cancelada') throw new ErrorDemo('Tarea inválida.');
+    return id;
+  }
 
   function validar(d) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.fecha || '')) throw new ErrorDemo('Fecha inválida.');
@@ -117,7 +177,7 @@
     registrar(u, d) {
       const c = validar(d); cruce(u.id, c);
       const r = Object.assign({ id: uuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
-        area: u.area }, estadoInicial(u), c);
+        area: u.area, tarea_id: tareaLigable(u, d.tarea_id) }, estadoInicial(u), c);
       registros.push(r);
       return { registro: copia(r) };
     },
@@ -126,7 +186,7 @@
       if (!r || r.miembro_id !== u.id) throw new ErrorDemo('Registro no encontrado.');
       if (r.estado === 'aprobado' && u.rol !== 'admin') throw new ErrorDemo('No se puede editar un registro aprobado.');
       const c = validar(d); cruce(u.id, c, r.id);
-      Object.assign(r, c, estadoInicial(u));
+      Object.assign(r, c, estadoInicial(u), { tarea_id: tareaLigable(u, d.tarea_id) });
       return { registro: copia(r) };
     },
     misHoras: (u, d) => ({ registros: copia(registros.filter((r) => r.miembro_id === u.id && enRango(r, d)).sort(ordenar)) }),
@@ -141,6 +201,52 @@
       if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para revisar horas.');
       return { registros: copia(registros.filter((r) => puedeRevisar(u, r.miembro_id, r.area) &&
         (!d.estado || r.estado === d.estado) && (!d.miembro_id || r.miembro_id === d.miembro_id) && enRango(r, d)).sort(ordenar)) };
+    },
+    tareas(u, d) {
+      let ts;
+      if (d.vista === 'asignadas') {
+        if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver esas tareas.');
+        ts = tareas.filter((t) => t.asignada_por_id === u.id);
+      } else if (d.vista === 'todas') {
+        if (u.rol !== 'admin') throw new ErrorDemo('No tienes permiso para ver esas tareas.');
+        ts = tareas.slice();
+      } else {
+        ts = tareas.filter((t) => t.asignada_a_id === u.id);
+      }
+      if (ESTADOS_TAREA.includes(d.estado)) ts = ts.filter((t) => t.estado === d.estado);
+      return { tareas: ts.sort(ordenTareas).map(conHoras) };
+    },
+    crearTarea(u, d) {
+      const b = MIEMBROS.find((m) => m.id === d.asignada_a_id);
+      if (!b || !puedeRevisar(u, b.id, b.area)) throw new ErrorDemo('No puedes asignar tareas a esa persona.');
+      const t = Object.assign({ id: uuid(), creada: new Date().toISOString(), asignada_por_id: u.id, asignada_por: u.nombre,
+        asignada_a_id: b.id, asignada_a: b.nombre, area: b.area, estado: 'pendiente', completada_en: '', nota: '' }, validarTarea(d));
+      tareas.push(t);
+      return { tarea: conHoras(t) };
+    },
+    editarTarea(u, d) {
+      const t = tareas.find((x) => x.id === d.id);
+      if (!t || t.asignada_por_id !== u.id) throw new ErrorDemo('Solo quien asignó la tarea puede editarla.');
+      Object.assign(t, validarTarea(d, t.plazo));
+      return { tarea: conHoras(t) };
+    },
+    actualizarTarea(u, d) {
+      const t = tareas.find((x) => x.id === d.id);
+      if (!t) throw new ErrorDemo('Tarea no encontrada.');
+      const esCreador = t.asignada_por_id === u.id, esAsignado = t.asignada_a_id === u.id;
+      const permitidos = esCreador ? ESTADOS_TAREA : esAsignado ? ['pendiente', 'en_progreso', 'hecha'] : [];
+      if (!permitidos.includes(d.estado)) throw new ErrorDemo('No puedes cambiar esta tarea a ese estado.');
+      if (t.estado !== 'hecha' && d.estado === 'hecha') t.completada_en = new Date().toISOString();
+      if (d.estado !== 'hecha') t.completada_en = '';
+      t.estado = d.estado;
+      if (esAsignado && d.nota !== undefined) t.nota = String(d.nota).trim().slice(0, 500);
+      return { tarea: conHoras(t) };
+    },
+    eliminarTarea(u, d) {
+      const i = tareas.findIndex((x) => x.id === d.id);
+      if (i === -1 || tareas[i].asignada_por_id !== u.id) throw new ErrorDemo('Solo quien asignó la tarea puede eliminarla.');
+      tareas.splice(i, 1);
+      return { eliminada: d.id };
     },
     miembrosEquipo(u) {
       if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver otros calendarios.');
@@ -181,7 +287,8 @@
       if (d.detalle) {
         salida.detalle = base.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.miembro.localeCompare(b.miembro) || a.inicio.localeCompare(b.inicio))
           .map((r) => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol, area: r.area,
-            descripcion: r.descripcion, enlace: r.enlace, estado: r.estado, revisado_por: r.revisado_por, comentario: r.comentario }));
+            descripcion: r.descripcion, enlace: r.enlace, estado: r.estado, revisado_por: r.revisado_por, comentario: r.comentario,
+            tarea: (tareas.find((t) => t.id === r.tarea_id) || {}).titulo || '' }));
       }
       return salida;
     },
