@@ -475,6 +475,15 @@ td.barra-celda { width: 45%; vertical-align: middle; }
 .plazos input[type=radio]:checked + span { border-color: var(--acento); background: var(--acento-suave); color: var(--acento); }
 .plazos input[type=radio]:focus-visible + span { outline: 2px solid var(--acento); outline-offset: 2px; }
 
+/* ---------- planilla ---------- */
+.codigo-grande { font: 700 34px/1 var(--fuente); letter-spacing: .12em; text-align: center; padding: 18px; border-radius: 14px; background: var(--acento-suave); color: var(--acento); font-variant-numeric: tabular-nums; user-select: all; }
+.casillas { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.casillas label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+tr.inactiva td { color: var(--sutil); }
+.estado.activo { background: var(--ok-suave); color: var(--ok); }
+.estado.inactivo { background: var(--panel-2); color: var(--sutil); }
+#pla-buscar { min-width: 220px; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .nav a span { display: none; }

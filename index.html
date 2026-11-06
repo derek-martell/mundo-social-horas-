@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="styles.css?v=202611062211">
+  <link rel="stylesheet" href="styles.css?v=202611062301">
 </head>
 <body>
   <div id="banner-demo" class="banner-demo" hidden>
@@ -69,6 +69,9 @@
         </a>
         <a href="#por-aprobar" data-pagina-link="por-aprobar" data-solo-revisor hidden title="Por aprobar">
           <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg><span>Por aprobar</span><b id="cuenta-pendientes" class="insignia" hidden></b>
+        </a>
+        <a href="#planilla" data-pagina-link="planilla" data-solo-revisor hidden title="Planilla">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.5 0 4.5 1.5 4.5 4"/></svg><span>Planilla</span>
         </a>
         <a href="#totales" data-pagina-link="totales" title="Totales">
           <svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span>Totales</span>
@@ -177,6 +180,29 @@
           <div id="tar-lista" class="tar-lista"></div>
         </section>
 
+        <!-- Planilla -->
+        <section id="pagina-planilla" class="pagina panel relleno" hidden>
+          <div class="cabecera">
+            <div>
+              <h2>Planilla</h2>
+              <p class="sutil" id="pla-alcance"></p>
+            </div>
+            <div class="filtros-linea">
+              <input id="pla-buscar" class="selector" type="search" placeholder="Buscar por nombre o correo" aria-label="Buscar">
+              <select id="pla-area" class="selector" aria-label="Área"></select>
+              <label class="en-linea"><input id="pla-inactivos" type="checkbox"> Mostrar inactivos</label>
+              <button id="pla-agregar" class="btn primario" type="button">Agregar persona</button>
+            </div>
+          </div>
+          <div id="pla-cifras" class="cifras"></div>
+          <div class="tabla-envoltura">
+            <table class="tabla">
+              <thead><tr><th>Nombre</th><th>Correo</th><th>Área</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+              <tbody id="pla-tabla"></tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Totales -->
         <section id="pagina-totales" class="pagina panel relleno" hidden>
           <div class="cabecera">
@@ -256,10 +282,49 @@
       </div>
     </form>
   </div>
+  <div id="dialogo-persona" class="dialogo-fondo" hidden>
+    <form id="dp-form" class="dialogo ancho" role="dialog" aria-modal="true" aria-labelledby="dp-titulo">
+      <h2 id="dp-titulo">Agregar persona</h2>
+      <label class="campo-etiqueta" for="dp-nombre">Nombre completo</label>
+      <input id="dp-nombre" class="selector" maxlength="100" autocomplete="off">
+      <label class="campo-etiqueta" for="dp-email">Correo <span class="sutil">(opcional)</span></label>
+      <input id="dp-email" class="selector" type="email" maxlength="120" autocomplete="off">
+      <label class="campo-etiqueta" for="dp-area">Área</label>
+      <select id="dp-area" class="selector"></select>
+      <div id="dp-solo-admin" hidden>
+        <label class="campo-etiqueta" for="dp-rol">Rol</label>
+        <select id="dp-rol" class="selector">
+          <option value="miembro">Miembro</option>
+          <option value="coordinador">Director de área (coordinador)</option>
+          <option value="admin">Admin</option>
+        </select>
+        <div id="dp-coordina-caja" hidden>
+          <span class="campo-etiqueta">Áreas que dirige</span>
+          <div id="dp-coordina" class="casillas"></div>
+        </div>
+      </div>
+      <div class="dialogo-pie">
+        <button type="button" class="btn texto" id="dp-cancelar">Cancelar</button>
+        <button type="submit" class="btn primario" id="dp-ok">Agregar</button>
+      </div>
+    </form>
+  </div>
+  <div id="dialogo-codigo" class="dialogo-fondo" hidden>
+    <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="dc-titulo">
+      <h2 id="dc-titulo">Código de acceso</h2>
+      <p id="dc-texto" class="sutil"></p>
+      <div class="codigo-grande" id="dc-codigo"></div>
+      <p class="sutil">Envíaselo por un canal privado (WhatsApp o correo). Por seguridad no se vuelve a mostrar; si lo pierde, genera uno nuevo.</p>
+      <div class="dialogo-pie">
+        <button type="button" class="btn borde" id="dc-copiar">Copiar</button>
+        <button type="button" class="btn primario" id="dc-cerrar">Listo</button>
+      </div>
+    </div>
+  </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js?v=202611062211"></script>
-  <script src="demo.js?v=202611062211"></script>
-  <script src="app.js?v=202611062211"></script>
+  <script src="config.js?v=202611062301"></script>
+  <script src="demo.js?v=202611062301"></script>
+  <script src="app.js?v=202611062301"></script>
 </body>
 </html>
