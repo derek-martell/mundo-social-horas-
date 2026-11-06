@@ -44,7 +44,7 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 
 ### Tareas y metas
 
-- **Quién asigna a quién:** igual que en la aprobación de horas. El coordinador asigna tareas a los miembros de su área; el admin, a los coordinadores (y a quien esté en un área sin coordinador).
+- **Quién asigna a quién:** igual que en la aprobación de horas. El coordinador asigna tareas a los miembros de su área; el admin, a los coordinadores (y a quien esté en un área sin coordinador). El admin, además, puede ponerse tareas a sí mismo (opción **Yo** en *Para*).
 - **Nueva tarea:** a quién, qué (y un detalle opcional), plazo (**esta semana**, **fin de mes** u otra fecha) y si es de prioridad alta.
 - **Mis tareas:** cada persona ve sus tareas agrupadas en *Vencidas*, *Esta semana*, *Este mes*, *Más adelante* y *Terminadas*. Puede empezarlas, marcarlas como hechas, dejar una nota y **registrar horas ligadas a la tarea** (las horas dedicadas se suman solas).
 - **Metas de esta semana:** en el panel lateral del calendario, con un clic para marcarlas como hechas. La pestaña *Tareas* muestra cuántas quedan.

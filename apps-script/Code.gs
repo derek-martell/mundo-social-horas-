@@ -23,7 +23,8 @@
  *                   por encima para aprobarlas.
  *   Nadie aprueba sus propias horas.
  *
- * Tareas: quien puede revisar a una persona (misma jerarquía de arriba) puede asignarle tareas,
+ * Tareas: quien puede revisar a una persona (misma jerarquía de arriba) puede asignarle tareas
+ * (el admin, además, a sí mismo),
  * editarlas, cancelarlas y borrarlas (solo las que creó). La persona asignada las ve, cambia su
  * estado (pendiente / en_progreso / hecha), deja una nota y puede ligar sus horas a la tarea
  * con `tarea_id` en Registros. El admin ve todas las tareas.
@@ -530,7 +531,9 @@ function tareas_(u, d) {
 
 function crearTarea_(u, d, ctx) {
   const p = ctx.porId[String(d.asignada_a_id || '')];
-  if (!p || !p.activo || !p.area || !puedeRevisar_(u, p.id, p.area, ctx)) {
+  // El admin puede ponerse tareas a sí mismo: no hay nadie por encima que se las asigne.
+  const aSiMismo = p && p.id === u.id && esAdmin_(u);
+  if (!p || !p.activo || !p.area || !(aSiMismo || puedeRevisar_(u, p.id, p.area, ctx))) {
     throw new ErrorApp('No puedes asignar tareas a esa persona.');
   }
   const c = validarCamposTarea_(d, null);
