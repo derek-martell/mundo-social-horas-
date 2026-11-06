@@ -99,7 +99,7 @@ function autenticar_(codigo, ctx) {
   if (fallidos >= MAX_INTENTOS_FALLIDOS) {
     throw new ErrorApp('Demasiados intentos fallidos. Espera unos minutos.');
   }
-  codigo = String(codigo || '').trim();
+  codigo = String(codigo || '').replace(/\s+/g, ''); // acepta "1234 5678"
   const m = codigo.length >= 6 && ctx.miembros.find(x => x.activo && x.codigo === codigo);
   if (!m) {
     cache.put('fallidos', String(fallidos + 1), 600);
@@ -457,20 +457,29 @@ function configurar() {
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
   reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
+  ss.getSheetByName(HOJA_MIEMBROS).getRange('G:G').setNumberFormat('@'); // código como texto
   generarCodigos();
 }
 
-/** Genera un código aleatorio para cada miembro que no tenga uno. */
+/**
+ * Genera un código numérico de 8 dígitos, distinto para cada persona, a quien no tenga uno.
+ * No empieza con 0, para que Sheets no lo recorte si la celda se vuelve número.
+ */
 function generarCodigos() {
   const { hoja, filas } = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS);
   const col = COLS_MIEMBROS.indexOf('codigo') + 1;
-  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const usados = {};
+  filas.forEach(m => { usados[String(m.codigo).trim()] = true; });
   let n = 0;
   filas.forEach((m, i) => {
     if (String(m.id).trim() && !String(m.codigo).trim()) {
-      let c = '';
-      for (let k = 0; k < 10; k++) c += alfabeto[Math.floor(Math.random() * alfabeto.length)];
-      hoja.getRange(i + 2, col).setValue(c);
+      let c;
+      do {
+        c = String(1 + Math.floor(Math.random() * 9));
+        for (let k = 0; k < 7; k++) c += Math.floor(Math.random() * 10);
+      } while (usados[c]);
+      usados[c] = true;
+      hoja.getRange(i + 2, col).setNumberFormat('@').setValue(c);
       n++;
     }
   });
