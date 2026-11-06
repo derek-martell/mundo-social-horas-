@@ -391,7 +391,11 @@ td.barra-celda { width: 45%; vertical-align: middle; }
 .cifra b { display: block; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cifra span { color: var(--sutil); font-size: 13px; }
 .dos-columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-#res-csv { margin-top: 20px; }
+.exportar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.exportar .sutil { font-size: 13px; max-width: 60ch; }
+.rol { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--sutil); }
+.rol.coordinador { background: var(--acento-suave); color: var(--acento); }
+.rol.admin { background: var(--texto); color: var(--panel); }
 
 .aviso {
   position: fixed; left: max(24px, env(safe-area-inset-left, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: 70;

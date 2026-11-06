@@ -20,7 +20,7 @@ Cada persona pertenece a **un área** (Redacción, Redes sociales, Diseño…). 
 |---|---|---|
 | `miembro` | Registrar, corregir y ver sus propias horas y totales. | El coordinador de su área. |
 | `coordinador` | Lo mismo, más **ver y aprobar solo a los miembros de su área**, y ver los totales de su área. | El admin. |
-| `admin` | Aprobar las horas de **los coordinadores** y ver el **resumen general** de todo el grupo en Totales. | — |
+| `admin` | Aprobar las horas de **los coordinadores** y ver el **resumen general** de todo el grupo en Totales. | Nadie: se aprueban solas al registrarlas (y puede corregirlas). |
 
 Nadie aprueba sus propias horas. Si un área no tiene coordinador activo, sus miembros los aprueba el admin, para que nadie quede sin revisar.
 
@@ -39,7 +39,8 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 
 - **Calendario de…:** en el panel lateral eliges a alguien que te toca aprobar (el coordinador, a los miembros de su área; el admin, a los coordinadores) y ves su semana tal cual la registró. Al hacer clic en un bloque puedes aprobarlo o rechazarlo, o aprobar de una vez todo lo pendiente del periodo.
 - **Por aprobar:** lista de los registros que te toca revisar, filtrable por estado, persona y mes, con aprobación en lote. Al rechazar se pide el motivo.
-- **Totales:** horas por persona y mes y por área (el admin ve todo el grupo; el coordinador, su área), con filtro por rango de meses o solo aprobadas, y exportación a CSV.
+- **Totales:** horas por persona y mes (con su **rol**) y por área. El admin ve todo el grupo; el coordinador, su área. Se puede filtrar por rango de meses, por rol (solo coordinadores, solo miembros…) o solo aprobadas.
+- **Descargar Excel:** baja un `.xlsx` con los mismos filtros de la pantalla y tres hojas (*Por persona y mes*, *Por área* y *Detalle* con cada registro). Cada hoja ya trae los filtros puestos en los encabezados: haz clic en la flechita de una columna para filtrar por persona, rol, área, estado o fecha.
 
 ## Puesta en marcha
 
