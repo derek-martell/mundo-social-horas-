@@ -839,6 +839,13 @@ function configurar() {
     }
     return h;
   };
+  // Si la lista de personas se importó (p. ej. desde un CSV), su pestaña puede tener otro nombre:
+  // se reconoce por los encabezados y se renombra a "Miembros" en vez de crear una hoja vacía.
+  if (!ss.getSheetByName(HOJA_MIEMBROS)) {
+    const importada = ss.getSheets().find(h => h.getLastRow() > 0 &&
+      h.getRange(1, 1, 1, COLS_MIEMBROS.length).getValues()[0].map(normalizar_).join('|') === COLS_MIEMBROS.join('|'));
+    if (importada) importada.setName(HOJA_MIEMBROS).setFrozenRows(1);
+  }
   crear(HOJA_MIEMBROS, COLS_MIEMBROS, [
     ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí'],
     ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí'],
