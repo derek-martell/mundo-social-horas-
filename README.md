@@ -14,28 +14,32 @@ Cuando la URL ya esté configurada, puedes volver a ver la demo agregando `?demo
 
 ## Cómo funciona
 
-| Rol | Qué puede hacer |
-|---|---|
-| `miembro` | Registrar sus horas, ver "Mis horas", eliminar sus registros no aprobados y ver sus propios totales. |
-| `coordinador` | Lo mismo, más **aprobar o rechazar las horas de los equipos que coordina** y ver los totales de esos equipos. No puede aprobar sus propias horas. |
-| `admin` | Ve y aprueba las horas de todo el grupo (incluidas las de los coordinadores) y ve todos los totales. |
+Cada persona pertenece a **un área** (Redacción, Redes sociales, Diseño…). Las horas se aprueban en cadena:
 
-Cada registro lleva: miembro, fecha, **hora de inicio y de fin** (en tramos de 15 minutos; las horas se calculan solas), área o proyecto, descripción, enlace opcional y estado (`pendiente`, `aprobado` o `rechazado`). No se permiten dos registros propios que se crucen en horario.
+| Rol | Qué puede hacer | Quién aprueba sus horas |
+|---|---|---|
+| `miembro` | Registrar, corregir y ver sus propias horas y totales. | El coordinador de su área. |
+| `coordinador` | Lo mismo, más **ver y aprobar solo a los miembros de su área**, y ver los totales de su área. | El admin. |
+| `admin` | Aprobar las horas de **los coordinadores** y ver el **resumen general** de todo el grupo en Totales. | — |
+
+Nadie aprueba sus propias horas. Si un área no tiene coordinador activo, sus miembros los aprueba el admin, para que nadie quede sin revisar.
+
+Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **hora de inicio y de fin** (en tramos de 15 minutos; las horas se calculan solas), descripción, enlace opcional y estado (`pendiente`, `aprobado` o `rechazado`). No se permiten dos registros propios que se crucen en horario.
 
 ### El calendario
 
 - **Vistas Día, Semana y Mes**, con mini calendario, total de horas por día y línea de la hora actual.
-- **Registrar:** arrastra sobre la cuadrícula (o haz clic) y completa la ventanita: en qué trabajaste, horario, área y enlace. También con el botón *Registrar horas* o la tecla `C`.
+- **Registrar:** arrastra sobre la cuadrícula (o haz clic) y completa la ventanita: en qué trabajaste, horario y enlace. También con el botón *Registrar horas* o la tecla `C`.
 - **Corregir:** arrastra un bloque para cambiarlo de hora o de día, estira su borde inferior para cambiar la duración, o haz clic para editarlo o eliminarlo. Las horas aprobadas ya no se pueden cambiar.
 - **Colores:** cada área tiene su color. Un bloque sólido está aprobado, uno claro con borde está pendiente y uno rayado y tachado fue rechazado (al hacer clic se ve el motivo; si lo corriges, vuelve a pendiente).
-- **Filtros** por estado y por área en el panel lateral, con el total del periodo visible.
+- **Filtros** por estado en el panel lateral, con el total del periodo visible.
 - **Atajos:** `C` registrar, `T` hoy, `D`/`S`/`M` día, semana o mes, `J`/`K` avanzar o retroceder, `Esc` cerrar.
 
 ### Para coordinadores y admin
 
-- **Calendario de…:** en el panel lateral eliges a un miembro de tu equipo y ves su semana tal cual la registró. Al hacer clic en un bloque puedes aprobarlo o rechazarlo, o aprobar de una vez todo lo pendiente del periodo.
-- **Por aprobar:** lista de registros filtrable por estado, miembro y mes, con aprobación en lote. Al rechazar se pide el motivo.
-- **Totales:** horas por persona y mes, por área o proyecto y por equipo, con filtro por rango de meses o solo aprobadas, y exportación a CSV.
+- **Calendario de…:** en el panel lateral eliges a alguien que te toca aprobar (el coordinador, a los miembros de su área; el admin, a los coordinadores) y ves su semana tal cual la registró. Al hacer clic en un bloque puedes aprobarlo o rechazarlo, o aprobar de una vez todo lo pendiente del periodo.
+- **Por aprobar:** lista de los registros que te toca revisar, filtrable por estado, persona y mes, con aprobación en lote. Al rechazar se pide el motivo.
+- **Totales:** horas por persona y mes y por área (el admin ve todo el grupo; el coordinador, su área), con filtro por rango de meses o solo aprobadas, y exportación a CSV.
 
 ## Puesta en marcha
 
@@ -50,10 +54,9 @@ Cada registro lleva: miembro, fecha, **hora de inicio y de fin** (en tramos de 1
 2. (Opcional) En **Configuración del proyecto ⚙️**, marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`apps-script/appsscript.json`](apps-script/appsscript.json). Así quedan fijados la zona horaria (Lima) y el runtime V8.
 3. Guarda el proyecto.
 4. En la barra superior, elige la función **`configurar`** y pulsa **Ejecutar**. La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
-   Esto crea tres hojas:
-   - **Miembros:** `id | nombre | email | equipo | rol | coordina | codigo | activo`, con tres filas de ejemplo.
-   - **Registros:** aquí se guardan las horas (`… | inicio | fin` al final). No hace falta tocarla.
-   - **Areas:** la lista de áreas o proyectos que aparece en el formulario.
+   Esto crea dos hojas:
+   - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo`, con tres filas de ejemplo.
+   - **Registros:** aquí se guardan las horas. No hace falta tocarla.
 5. Recarga el Sheet. Aparece el menú **Registro de horas** con las opciones *Configurar hojas* y *Generar códigos faltantes*.
 
 ### 3. Cargar a los miembros
@@ -65,17 +68,15 @@ En la hoja **Miembros**, borra las filas de ejemplo y agrega una fila por person
 | `id` | Un identificador único que no cambie, p. ej. `m01`, `m02`… |
 | `nombre` | Nombre que se mostrará. |
 | `email` | Opcional, como referencia. |
-| `equipo` | El equipo al que pertenece (p. ej. `Redacción`, `Redes`, `Web`). **Su coordinador aprobará sus horas.** |
+| `area` | El área a la que pertenece (p. ej. `Redacción`, `Redes sociales`, `Diseño`). Es obligatoria. La lista de áreas sale de esta columna. |
 | `rol` | `miembro`, `coordinador` o `admin`. |
-| `coordina` | Solo para coordinadores: los equipos que coordinan, separados por comas (p. ej. `Redacción, Edición`). Deben escribirse igual que en la columna `equipo` (no importan las mayúsculas). |
+| `coordina` | Solo para coordinadores: el área que coordinan (o varias, separadas por comas). Se escribe igual que en la columna `area` (no importan las mayúsculas). Normalmente es su propia área. |
 | `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código aleatorio de 10 caracteres para cada persona. |
 | `activo` | `sí` para permitir el acceso. Pon `no` para quitárselo sin borrar sus horas. |
 
 Envía a cada persona su código por un canal privado (WhatsApp, correo). Si un código se filtra, borra esa celda y vuelve a generar uno.
 
-Edita la hoja **Areas** para dejar la lista de áreas o proyectos que usan.
-
-> Si alguien cambia de equipo, sus registros anteriores se quedan con el equipo que tenía al registrarlos, y los aprueba el coordinador de ese equipo o el admin.
+> Si alguien cambia de área, sus registros anteriores se quedan con el área que tenía al registrarlos, y los revisa el coordinador de esa área.
 
 ### 4. Desplegar el Web App
 

@@ -29,10 +29,9 @@
     ancla: null,             // Date: fecha de referencia de la vista
     miniMes: null,           // Date: mes mostrado en el mini calendario
     registros: [],           // registros del rango visible
-    equipo: [],              // miembros que el usuario puede revisar
-    viendo: null,            // {id, nombre, equipo} cuando se ve el calendario de otra persona
+    equipo: [],              // personas cuyas horas puede revisar el usuario
+    viendo: null,            // {id, nombre, area, rol} cuando se ve el calendario de otra persona
     estados: { aprobado: true, pendiente: true, rechazado: true },
-    areasOcultas: new Set(),
     scroll: null,
     peticion: 0,
   };
@@ -79,6 +78,7 @@
   const etiquetaEstado = (e) => `<span class="estado ${esc(e)}">${{ aprobado: 'Aprobado', pendiente: 'Pendiente', rechazado: 'Rechazado' }[e] || esc(e)}</span>`;
   const esRevisor = () => S.usuario && (S.usuario.rol === 'admin' || S.usuario.rol === 'coordinador');
   const editable = (r) => !S.viendo && r.estado !== 'aprobado';
+  const rolDe = (id) => { const m = S.equipo.find((x) => x.id === id); return m ? m.rol : 'miembro'; };
 
   function leerPrefs() { try { return JSON.parse(localStorage.getItem(CLAVE_PREFS) || '{}'); } catch (e) { return {}; } }
   function guardarPref(k, v) { prefs[k] = v; try { localStorage.setItem(CLAVE_PREFS, JSON.stringify(prefs)); } catch (e) { /* nada */ } }
@@ -167,28 +167,28 @@
     $('#btn-usuario').title = u.nombre;
     $('#menu-avatar').textContent = iniciales(u.nombre);
     $('#menu-nombre').textContent = u.nombre;
-    $('#menu-rol').textContent = `${rolTxt} · Equipo ${u.equipo}`;
+    $('#menu-rol').textContent = `${rolTxt} · Área ${u.area}`;
     $$('[data-solo-revisor]').forEach((el) => { el.hidden = !esRevisor(); });
     $('#bloque-ver').hidden = !esRevisor();
     if (window.innerWidth <= 900) $('#lateral').classList.add('oculto');
     else if (prefs.lateralOculto) $('#lateral').classList.add('oculto');
 
     $('#res-alcance').textContent = 'Alcance: ' + (u.rol === 'admin' ? 'todo el grupo.'
-      : u.rol === 'coordinador' ? 'tus horas y las de ' + (u.coordina.join(', ') || '—') + '.' : 'solo tus horas.');
+      : u.rol === 'coordinador' ? 'tus horas y las de tu área (' + (u.coordina.join(', ') || '—') + ').' : 'solo tus horas.');
     $('#rev-alcance').textContent = u.rol === 'admin'
-      ? 'Horas de todo el grupo. Tus propias horas no aparecen: no puedes aprobarlas.'
-      : 'Horas de ' + (u.coordina.join(', ') || '—') + '. Tus propias horas las aprueba el administrador.';
+      ? 'Horas de los coordinadores (y de quien esté en un área sin coordinador). Las del resto las aprueba el coordinador de cada área.'
+      : 'Horas de los miembros de tu área: ' + (u.coordina.join(', ') || '—') + '. Tus propias horas las aprueba el administrador.';
+    $('#bloque-ver h2').textContent = u.rol === 'admin' ? 'Calendario de un coordinador' : 'Calendario de';
 
     if (esRevisor()) {
       api('miembrosEquipo').then((j) => {
         S.equipo = j.miembros;
-        const opciones = j.miembros.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.equipo)}</option>`).join('');
+        const opciones = j.miembros.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'miembro' && u.rol === 'admin' ? ' (sin coordinador)' : ''}</option>`).join('');
         $('#sel-persona').innerHTML = `<option value="">Mis horas</option>${opciones}`;
-        $('#rev-persona').innerHTML = `<option value="">Todo el equipo</option>${opciones}`;
+        $('#rev-persona').innerHTML = `<option value="">${u.rol === 'admin' ? 'Todos los coordinadores' : 'Toda mi área'}</option>${opciones}`;
       }).catch((e) => aviso(e.message, true));
       actualizarCuentaPendientes();
     }
-    renderFiltrosArea();
     irAPagina(paginaDeHash());
   }
 
@@ -290,7 +290,7 @@
     if (S.pagina !== 'calendario') irAPagina('calendario'); else cargarCalendario();
   }
 
-  const visibles = () => S.registros.filter((r) => S.estados[r.estado] && !S.areasOcultas.has(r.area));
+  const visibles = () => S.registros.filter((r) => S.estados[r.estado]);
 
   /* =================================================================
    * Calendario: dibujo
@@ -448,8 +448,7 @@
   function renderResumenLateral() {
     const etiqueta = S.vista === 'dia' ? 'Este día' : S.vista === 'semana' ? 'Esta semana' : 'Este mes';
     $('#resumen-titulo').textContent = (S.viendo ? S.viendo.nombre.split(' ')[0] + ' · ' : '') + etiqueta;
-    const enArea = S.registros.filter((r) => !S.areasOcultas.has(r.area) &&
-      (S.vista !== 'mes' || r.fecha.slice(0, 7) === ymd(S.ancla).slice(0, 7)));
+    const enArea = S.registros.filter((r) => S.vista !== 'mes' || r.fecha.slice(0, 7) === ymd(S.ancla).slice(0, 7));
     const suma = (e) => enArea.filter((r) => r.estado === e).reduce((s, r) => s + r.horas, 0);
     const v = { aprobado: suma('aprobado'), pendiente: suma('pendiente'), rechazado: suma('rechazado') };
     const total = v.aprobado + v.pendiente;
@@ -462,17 +461,11 @@
       <span class="valor">${fmtH(v[e.id])} h</span></label></li>`).join('');
   }
 
-  function renderFiltrosArea() {
-    $('#filtros-area').innerHTML = S.areas.map((a) => `<li><label>
-      <input type="checkbox" data-area="${esc(a)}" ${S.areasOcultas.has(a) ? '' : 'checked'}>
-      <span class="caja" style="--c:${colorArea(a)}"></span><span class="nombre">${esc(a)}</span></label></li>`).join('');
-  }
-
   function renderViendo() {
     const el = $('#viendo');
     if (!S.viendo || S.pagina !== 'calendario') { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = `<span>Estás viendo el calendario de <b>${esc(S.viendo.nombre)}</b> (${esc(S.viendo.equipo)}). Haz clic en un bloque para aprobarlo o rechazarlo.</span>
+    el.innerHTML = `<span>Estás viendo el calendario de <b>${esc(S.viendo.nombre)}</b> (${S.viendo.rol === 'coordinador' ? 'coordinador de ' : ''}${esc(S.viendo.area)}). Haz clic en un bloque para aprobarlo o rechazarlo.</span>
       <span class="espacio"></span>
       <button class="btn primario chico" type="button" id="aprobar-visibles">Aprobar pendientes de este periodo</button>
       <button class="btn texto chico" type="button" id="volver-mias">Volver a mis horas</button>`;
@@ -653,8 +646,7 @@
 
   /** Formulario para registrar (sin r) o editar (con r) un bloque de horas. */
   function abrirFormulario(valores, ancla, r) {
-    const ultimaArea = prefs.area && S.areas.includes(prefs.area) ? prefs.area : '';
-    const v = Object.assign({ area: ultimaArea, descripcion: '', enlace: '' }, valores);
+    const v = Object.assign({ descripcion: '', enlace: '' }, valores);
     const ini = aMin(v.inicio);
     const fantasma = !r && ancla && ancla.classList.contains('fantasma') ? ancla : null;
     const p = abrirPopover(`
@@ -668,12 +660,7 @@
             <span>–</span>
             <select id="pf-fin" class="campo" aria-label="Hora de fin">${opcionesHora(ini + SNAP, 1440, v.fin, ini)}</select>
           </div></div>
-          <div class="pop-fila">${ICONOS.etiqueta}<div class="contenido">
-            <select id="pf-area" class="campo ancho" aria-label="Área o proyecto">
-              <option value="">Elige el área o proyecto</option>
-              ${S.areas.map((a) => `<option${a === v.area ? ' selected' : ''}>${esc(a)}</option>`).join('')}
-            </select>
-          </div></div>
+          <div class="pop-fila">${ICONOS.etiqueta}<div class="det-texto"><span class="punto" style="--c:${colorArea(S.usuario.area)}"></span> ${esc(S.usuario.area)}</div></div>
           <div class="pop-fila">${ICONOS.enlace}<div class="contenido">
             <input id="pf-enlace" class="campo ancho" type="url" maxlength="500" placeholder="Agregar enlace (opcional)" value="${esc(v.enlace)}">
           </div></div>
@@ -725,17 +712,15 @@
       ev.preventDefault();
       const d = {
         fecha: $('#pf-fecha', p).value, inicio: $('#pf-ini', p).value, fin: $('#pf-fin', p).value,
-        area: $('#pf-area', p).value, descripcion: desc.value.trim(), enlace: $('#pf-enlace', p).value.trim(),
+        descripcion: desc.value.trim(), enlace: $('#pf-enlace', p).value.trim(),
       };
       if (!d.descripcion) { aviso('Escribe en qué trabajaste.', true); desc.focus(); return; }
-      if (!d.area) { aviso('Elige el área o proyecto.', true); $('#pf-area', p).focus(); return; }
       if (d.fecha > hoyStr()) { aviso('No puedes registrar horas en una fecha futura.', true); return; }
       const btn = p.querySelector('[type=submit]');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
         if (r) await api('editar', Object.assign({ id: r.id }, d));
         else await api('registrar', d);
-        guardarPref('area', d.area);
         cerrarPopover();
         aviso(r ? 'Registro actualizado.' : `${fmtDur(aMin(d.fin) - aMin(d.inicio))} registradas. Quedan pendientes de aprobación.`);
         const f = aFecha(d.fecha);
@@ -777,7 +762,7 @@
           <h3>${esc(r.descripcion)}</h3>
           <p>${cap(fmtFechaLarga(r.fecha))} · ${horaCorta(r.inicio)} – ${horaCorta(r.fin)} · ${fmtDur(min)}</p>
         </div></div>
-        ${S.viendo ? `<div class="pop-fila">${ICONOS.persona}<div class="det-texto">${esc(r.miembro)} · ${esc(r.equipo)}</div></div>` : ''}
+        ${S.viendo ? `<div class="pop-fila">${ICONOS.persona}<div class="det-texto">${esc(r.miembro)} · ${esc(r.area)}</div></div>` : ''}
         <div class="pop-fila">${ICONOS.etiqueta}<div class="det-texto">${esc(r.area)}</div></div>
         ${r.enlace ? `<div class="pop-fila">${ICONOS.enlace}<div class="det-texto">${enlaceSeguro(r.enlace)}</div></div>` : ''}
         <div class="pop-fila">${ICONOS.check}<div class="det-texto">${etiquetaEstado(r.estado)}
@@ -869,7 +854,7 @@
       tb.innerHTML = registros.length ? registros.map((r) => `
         <tr>
           <td>${r.estado === 'pendiente' ? `<input type="checkbox" class="rev-sel" value="${esc(r.id)}" aria-label="Seleccionar">` : ''}</td>
-          <td>${esc(r.miembro)}<span class="sub">${esc(r.equipo)}</span></td>
+          <td>${esc(r.miembro)}<span class="sub">${S.usuario.rol === 'admin' ? (rolDe(r.miembro_id) === 'coordinador' ? 'Coordinador' : 'Área sin coordinador') : 'Miembro'}</span></td>
           <td>${fmtFechaCorta(r.fecha)}</td>
           <td class="num">${r.inicio ? `${horaCorta(r.inicio)}–${horaCorta(r.fin)}` : '—'}</td>
           <td class="num">${fmtH(r.horas)}</td>
@@ -920,7 +905,7 @@
   let ultimoResumen = null;
 
   async function cargarTotales() {
-    ['#res-persona', '#res-area', '#res-equipo'].forEach((s) => { $(s).innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>'; });
+    ['#res-persona', '#res-area'].forEach((s) => { $(s).innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>'; });
     try {
       const j = await api('resumen', { desde: $('#res-desde').value, hasta: $('#res-hasta').value, soloAprobadas: $('#res-aprobadas').checked });
       ultimoResumen = j;
@@ -931,16 +916,14 @@
       const tot = (x) => x.aprobadas + x.pendientes;
       const vacio = (n) => `<tr><td colspan="${n}" class="vacio">Sin horas en este periodo.</td></tr>`;
       $('#res-persona').innerHTML = j.porPersonaMes.length ? j.porPersonaMes.map((x) => `<tr>
-        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td>${esc(x.equipo)}</td>
+        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
         <td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td><td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(6);
       const maxArea = Math.max(1, ...j.porArea.map(tot));
       $('#res-area').innerHTML = j.porArea.length ? j.porArea.map((x) => `<tr>
         <td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
         <td class="barra-celda"><div class="barra-area" style="--c:${colorArea(x.area)};width:${tot(x) / maxArea * 100}%"></div></td>
-        <td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(3);
-      $('#res-equipo').innerHTML = j.porEquipo.length ? j.porEquipo.map((x) => `<tr>
-        <td>${esc(x.equipo)}</td><td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td>
-        <td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(4);
+        <td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td>
+        <td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(5);
     } catch (e) {
       aviso(e.message, true);
     }
@@ -950,8 +933,8 @@
     const r = ultimoResumen;
     if (!r) return;
     const q = (v) => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
-    const filas = [['mes', 'miembro', 'equipo', 'aprobadas', 'pendientes', 'total']]
-      .concat(r.porPersonaMes.map((x) => [x.mes, x.miembro, x.equipo, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]));
+    const filas = [['mes', 'miembro', 'area', 'aprobadas', 'pendientes', 'total']]
+      .concat(r.porPersonaMes.map((x) => [x.mes, x.miembro, x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]));
     const blob = new Blob(['﻿' + filas.map((l) => l.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -1022,12 +1005,6 @@
   $('#filtros-estado').addEventListener('change', (ev) => {
     const e = ev.target.dataset.estado;
     if (e) { S.estados[e] = ev.target.checked; renderCalendario(); }
-  });
-  $('#filtros-area').addEventListener('change', (ev) => {
-    const a = ev.target.dataset.area;
-    if (!a) return;
-    if (ev.target.checked) S.areasOcultas.delete(a); else S.areasOcultas.add(a);
-    renderCalendario();
   });
   $('#sel-persona').addEventListener('change', (ev) => {
     if (ev.target.value) verCalendarioDe(ev.target.value); else dejarDeVer();
