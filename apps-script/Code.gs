@@ -58,11 +58,112 @@ const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el 
 const ZONA = 'America/Lima';
 
 /* ------------------------------------------------------------------ */
+/* Configuración y menú del Sheet                                      */
+/* (va primero: así "configurar" queda elegida por defecto en el     */
+/*  selector de funciones del editor de Apps Script)                   */
+/* ------------------------------------------------------------------ */
+
+/** Crea las hojas con sus encabezados si no existen. Se puede ejecutar varias veces. */
+function configurar() {
+  const ss = libro_();
+  const crear = (nombre, cols, ejemplo) => {
+    let h = ss.getSheetByName(nombre);
+    if (!h) h = ss.insertSheet(nombre);
+    if (h.getLastRow() === 0) {
+      h.appendRow(cols);
+      h.setFrozenRows(1);
+      h.getRange(1, 1, 1, cols.length).setFontWeight('bold');
+      (ejemplo || []).forEach(f => h.appendRow(f));
+    }
+    return h;
+  };
+  // Si la lista de personas se importó (p. ej. desde un CSV), su pestaña puede tener otro nombre:
+  // se reconoce por los encabezados y se renombra a "Miembros" en vez de crear una hoja vacía.
+  if (!ss.getSheetByName(HOJA_MIEMBROS)) {
+    const importada = ss.getSheets().find(h => h.getLastRow() > 0 &&
+      h.getRange(1, 1, 1, COLS_MIEMBROS.length).getValues()[0].map(normalizar_).join('|') === COLS_MIEMBROS.join('|'));
+    if (importada) importada.setName(HOJA_MIEMBROS).setFrozenRows(1);
+  }
+  crear(HOJA_MIEMBROS, COLS_MIEMBROS, [
+    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí'],
+    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí'],
+    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí'],
+  ]);
+  const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
+  reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
+  // Hojas ya existentes: agrega el encabezado de tarea_id si falta.
+  const colTarea = COLS_REGISTROS.indexOf('tarea_id') + 1;
+  if (reg.getLastRow() > 0 && !String(reg.getRange(1, colTarea).getValues()[0][0] || '').trim()) {
+    reg.getRange(1, colTarea).setValue('tarea_id');
+    reg.getRange(1, colTarea).setFontWeight('bold');
+  }
+  const tar = crear(HOJA_TAREAS, COLS_TAREAS);
+  tar.getRange('J:J').setNumberFormat('@'); // plazo como texto
+  ss.getSheetByName(HOJA_MIEMBROS).getRange('G:G').setNumberFormat('@'); // código como texto
+  generarCodigos();
+  console.log('Listo. Hojas: ' + ss.getSheets().map(h => h.getName()).join(', ') + '.');
+}
+
+/**
+ * Genera un código numérico de 8 dígitos, distinto para cada persona, a quien no tenga uno.
+ * No empieza con 0, para que Sheets no lo recorte si la celda se vuelve número.
+ */
+function generarCodigos() {
+  const { hoja, filas } = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS);
+  const col = COLS_MIEMBROS.indexOf('codigo') + 1;
+  const usados = {};
+  filas.forEach(m => { usados[String(m.codigo).trim()] = true; });
+  let n = 0;
+  filas.forEach((m, i) => {
+    if (String(m.id).trim() && !String(m.codigo).trim()) {
+      const c = nuevoCodigo_(usados);
+      usados[c] = true;
+      hoja.getRange(i + 2, col).setNumberFormat('@').setValue(c);
+      n++;
+    }
+  });
+  const msg = n + ' código(s) generado(s).';
+  console.log(msg); // visible en el Registro de ejecución del editor
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* desde el editor no hay aviso: ver el registro */ }
+}
+
+/** Agrega el menú "Registro de horas" al abrir el Sheet. */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Registro de horas')
+    .addItem('Configurar hojas', 'configurar')
+    .addItem('Generar códigos faltantes', 'generarCodigos')
+    .addToUi();
+}
+
+/* ------------------------------------------------------------------ */
 /* Entrada HTTP                                                        */
 /* ------------------------------------------------------------------ */
 
+/** Abrir la URL del Web App en el navegador muestra un diagnóstico, sin nombres ni códigos. */
 function doGet() {
-  return json_({ ok: true, servicio: 'Mundo Social · Registro de horas' });
+  const salida = { ok: true, servicio: 'Mundo Social · Registro de horas' };
+  try {
+    const ss = libro_();
+    salida.hojas = ss.getSheets().map(h => h.getName());
+    const faltan = [HOJA_MIEMBROS, HOJA_REGISTROS, HOJA_TAREAS].filter(n => salida.hojas.indexOf(n) === -1);
+    if (faltan.length) {
+      salida.ok = false;
+      salida.problema = 'Faltan las hojas ' + faltan.join(', ') + '. Ejecuta la función configurar en el editor de Apps Script.';
+    } else {
+      const ms = leerMiembros_();
+      salida.personas = ms.length;
+      salida.activas = ms.filter(m => m.activo).length;
+      salida.con_codigo = ms.filter(m => m.codigo).length;
+      if (salida.con_codigo < ms.length) {
+        salida.ok = false;
+        salida.problema = 'Hay personas sin código. Ejecuta configurar o el menú Registro de horas → Generar códigos faltantes.';
+      }
+    }
+  } catch (err) {
+    salida.ok = false;
+    salida.problema = err instanceof ErrorApp ? err.message : String(err);
+  }
+  return json_(salida);
 }
 
 function doPost(e) {
@@ -698,8 +799,17 @@ function nuevoCodigo_(usados) {
 /* Lectura del Sheet                                                   */
 /* ------------------------------------------------------------------ */
 
+/** El Sheet al que está unido el script. Si se creó aparte (script.google.com), no hay ninguno. */
+function libro_() {
+  const ss = SpreadsheetApp.getActive();
+  if (!ss) {
+    throw new ErrorApp('Este script no está unido al Google Sheet. Ábrelo desde el Sheet: Extensiones → Apps Script.');
+  }
+  return ss;
+}
+
 function hoja_(nombre) {
-  const h = SpreadsheetApp.getActive().getSheetByName(nombre);
+  const h = libro_().getSheetByName(nombre);
   if (!h) throw new ErrorApp('Falta la hoja "' + nombre + '". Ejecuta la función configurar.');
   return h;
 }
@@ -812,76 +922,4 @@ function conBloqueo_(fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new ErrorApp('El servidor está ocupado, intenta de nuevo.');
   try { return fn(); } finally { lock.releaseLock(); }
-}
-
-/* ------------------------------------------------------------------ */
-/* Configuración y menú del Sheet                                      */
-/* ------------------------------------------------------------------ */
-
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Registro de horas')
-    .addItem('Configurar hojas', 'configurar')
-    .addItem('Generar códigos faltantes', 'generarCodigos')
-    .addToUi();
-}
-
-/** Crea las hojas con sus encabezados si no existen. Se puede ejecutar varias veces. */
-function configurar() {
-  const ss = SpreadsheetApp.getActive();
-  const crear = (nombre, cols, ejemplo) => {
-    let h = ss.getSheetByName(nombre);
-    if (!h) h = ss.insertSheet(nombre);
-    if (h.getLastRow() === 0) {
-      h.appendRow(cols);
-      h.setFrozenRows(1);
-      h.getRange(1, 1, 1, cols.length).setFontWeight('bold');
-      (ejemplo || []).forEach(f => h.appendRow(f));
-    }
-    return h;
-  };
-  // Si la lista de personas se importó (p. ej. desde un CSV), su pestaña puede tener otro nombre:
-  // se reconoce por los encabezados y se renombra a "Miembros" en vez de crear una hoja vacía.
-  if (!ss.getSheetByName(HOJA_MIEMBROS)) {
-    const importada = ss.getSheets().find(h => h.getLastRow() > 0 &&
-      h.getRange(1, 1, 1, COLS_MIEMBROS.length).getValues()[0].map(normalizar_).join('|') === COLS_MIEMBROS.join('|'));
-    if (importada) importada.setName(HOJA_MIEMBROS).setFrozenRows(1);
-  }
-  crear(HOJA_MIEMBROS, COLS_MIEMBROS, [
-    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí'],
-    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí'],
-    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí'],
-  ]);
-  const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
-  reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
-  // Hojas ya existentes: agrega el encabezado de tarea_id si falta.
-  const colTarea = COLS_REGISTROS.indexOf('tarea_id') + 1;
-  if (reg.getLastRow() > 0 && !String(reg.getRange(1, colTarea).getValues()[0][0] || '').trim()) {
-    reg.getRange(1, colTarea).setValue('tarea_id');
-    reg.getRange(1, colTarea).setFontWeight('bold');
-  }
-  const tar = crear(HOJA_TAREAS, COLS_TAREAS);
-  tar.getRange('J:J').setNumberFormat('@'); // plazo como texto
-  ss.getSheetByName(HOJA_MIEMBROS).getRange('G:G').setNumberFormat('@'); // código como texto
-  generarCodigos();
-}
-
-/**
- * Genera un código numérico de 8 dígitos, distinto para cada persona, a quien no tenga uno.
- * No empieza con 0, para que Sheets no lo recorte si la celda se vuelve número.
- */
-function generarCodigos() {
-  const { hoja, filas } = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS);
-  const col = COLS_MIEMBROS.indexOf('codigo') + 1;
-  const usados = {};
-  filas.forEach(m => { usados[String(m.codigo).trim()] = true; });
-  let n = 0;
-  filas.forEach((m, i) => {
-    if (String(m.id).trim() && !String(m.codigo).trim()) {
-      const c = nuevoCodigo_(usados);
-      usados[c] = true;
-      hoja.getRange(i + 2, col).setNumberFormat('@').setValue(c);
-      n++;
-    }
-  });
-  try { SpreadsheetApp.getUi().alert(n + ' código(s) generado(s).'); } catch (e) { /* sin UI */ }
 }

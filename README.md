@@ -69,7 +69,7 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 1. En el editor de Apps Script, reemplaza el contenido de `Código.gs` por el de [`apps-script/Code.gs`](apps-script/Code.gs).
 2. (Opcional) En **Configuración del proyecto ⚙️**, marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`apps-script/appsscript.json`](apps-script/appsscript.json). Así quedan fijados la zona horaria (Lima) y el runtime V8.
 3. Guarda el proyecto.
-4. En la barra superior, elige la función **`configurar`** y pulsa **Ejecutar**. La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
+4. En la barra superior, comprueba que el selector de funciones diga **`configurar`** (es la primera del archivo) y pulsa **▶ Ejecutar**. En el **Registro de ejecución** verás "N código(s) generado(s)" y "Listo. Hojas: Miembros, Registros, Tareas". Para verificar el Web App ya desplegado, abre su URL en el navegador: muestra un diagnóstico (hojas y cuántas personas tienen código). La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
    Esto crea tres hojas:
    - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo`, con tres filas de ejemplo.
    - **Registros:** aquí se guardan las horas. No hace falta tocarla.
