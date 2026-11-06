@@ -33,6 +33,8 @@
     viendo: null,            // {id, nombre, area, rol} cuando se ve el calendario de otra persona
     estados: { aprobado: true, pendiente: true, rechazado: true },
     scroll: null,
+    misTareas: [],           // tareas asignadas al usuario
+    vistaTareas: 'mias',
     peticion: 0,
   };
 
@@ -92,6 +94,8 @@
     persona: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
     check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
     comentario: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>',
+    tarea: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17"/></svg>',
+    marca: '<svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>',
     lapiz: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
     basura: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
     cerrar: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -150,7 +154,7 @@
 
   function salir() {
     try { sessionStorage.removeItem(CLAVE_SESION); } catch (e) { /* nada */ }
-    S.codigo = ''; S.usuario = null; S.viendo = null; S.registros = []; S.equipo = [];
+    S.codigo = ''; S.usuario = null; S.viendo = null; S.registros = []; S.equipo = []; S.misTareas = []; S.vistaTareas = 'mias';
     cerrarPopover();
     $('#menu-usuario').hidden = true;
     $('#app').hidden = true;
@@ -191,6 +195,12 @@
       }).catch((e) => aviso(e.message, true));
       actualizarCuentaPendientes();
     }
+    $$('[data-solo-admin]').forEach((el) => { el.hidden = u.rol !== 'admin'; });
+    $('#tar-alcance').textContent = u.rol === 'admin'
+      ? 'Asignas tareas a los coordinadores (y a quien esté en un área sin coordinador). En "Todo el grupo" ves todas.'
+      : u.rol === 'coordinador' ? 'Asignas tareas a los miembros de tu área. También ves las que te asignan a ti.'
+      : 'Las tareas y metas que te asigna tu coordinador.';
+    cargarMisTareas();
     irAPagina(paginaDeHash());
   }
 
@@ -200,7 +210,7 @@
 
   function paginaDeHash() {
     const h = location.hash.slice(1);
-    return ['calendario', 'por-aprobar', 'totales'].includes(h) ? h : 'calendario';
+    return ['calendario', 'tareas', 'por-aprobar', 'totales'].includes(h) ? h : 'calendario';
   }
 
   function irAPagina(p) {
@@ -216,6 +226,7 @@
     if (p === 'calendario') cargarCalendario();
     if (p === 'por-aprobar') cargarRevision();
     if (p === 'totales') cargarTotales();
+    if (p === 'tareas') cargarTareas();
   }
 
   /* =================================================================
@@ -648,7 +659,8 @@
 
   /** Formulario para registrar (sin r) o editar (con r) un bloque de horas. */
   function abrirFormulario(valores, ancla, r) {
-    const v = Object.assign({ descripcion: '', enlace: '' }, valores);
+    const v = Object.assign({ descripcion: '', enlace: '', tarea_id: '' }, valores);
+    const ligables = S.misTareas.filter((t) => t.estado !== 'cancelada' && (abierta(t) || t.id === v.tarea_id));
     const ini = aMin(v.inicio);
     const fantasma = !r && ancla && ancla.classList.contains('fantasma') ? ancla : null;
     const p = abrirPopover(`
@@ -663,6 +675,12 @@
             <select id="pf-fin" class="campo" aria-label="Hora de fin">${opcionesHora(ini + SNAP, 1440, v.fin, ini)}</select>
           </div></div>
           <div class="pop-fila">${ICONOS.etiqueta}<div class="det-texto"><span class="punto" style="--c:${colorArea(S.usuario.area)}"></span> ${esc(S.usuario.area)}</div></div>
+          ${ligables.length ? `<div class="pop-fila">${ICONOS.tarea}<div class="contenido">
+            <select id="pf-tarea" class="campo ancho" aria-label="Tarea o meta">
+              <option value="">Sin tarea asignada</option>
+              ${ligables.map((t) => `<option value="${esc(t.id)}"${t.id === v.tarea_id ? ' selected' : ''}>${esc(t.titulo)}</option>`).join('')}
+            </select>
+          </div></div>` : ''}
           <div class="pop-fila">${ICONOS.enlace}<div class="contenido">
             <input id="pf-enlace" class="campo ancho" type="url" maxlength="500" placeholder="Agregar enlace (opcional)" value="${esc(v.enlace)}">
           </div></div>
@@ -715,6 +733,7 @@
       const d = {
         fecha: $('#pf-fecha', p).value, inicio: $('#pf-ini', p).value, fin: $('#pf-fin', p).value,
         descripcion: desc.value.trim(), enlace: $('#pf-enlace', p).value.trim(),
+        tarea_id: $('#pf-tarea', p) ? $('#pf-tarea', p).value : '',
       };
       if (!d.descripcion) { aviso('Escribe en qué trabajaste.', true); desc.focus(); return; }
       if (d.fecha > hoyStr()) { aviso('No puedes registrar horas en una fecha futura.', true); return; }
@@ -724,6 +743,7 @@
         if (r) await api('editar', Object.assign({ id: r.id }, d));
         else await api('registrar', d);
         cerrarPopover();
+        if (d.tarea_id || (r && r.tarea_id)) cargarMisTareas();
         const dur = fmtDur(aMin(d.fin) - aMin(d.inicio));
         aviso(r ? 'Registro actualizado.' : S.usuario.rol === 'admin' ? `${dur} registradas y aprobadas.` : `${dur} registradas. Quedan pendientes de aprobación.`);
         const f = aFecha(d.fecha);
@@ -767,6 +787,7 @@
         </div></div>
         ${S.viendo ? `<div class="pop-fila">${ICONOS.persona}<div class="det-texto">${esc(r.miembro)} · ${esc(r.area)}</div></div>` : ''}
         <div class="pop-fila">${ICONOS.etiqueta}<div class="det-texto">${esc(r.area)}</div></div>
+        ${r.tarea_id && tituloTarea(r.tarea_id) ? `<div class="pop-fila">${ICONOS.tarea}<div class="det-texto">${esc(tituloTarea(r.tarea_id))}</div></div>` : ''}
         ${r.enlace ? `<div class="pop-fila">${ICONOS.enlace}<div class="det-texto">${enlaceSeguro(r.enlace)}</div></div>` : ''}
         <div class="pop-fila">${ICONOS.check}<div class="det-texto">${etiquetaEstado(r.estado)}
           ${r.revisado_por ? `<span class="sutil"> por ${esc(r.revisado_por)}</span>` : r.estado === 'pendiente' ? '<span class="sutil"> de aprobación</span>' : ''}</div></div>
@@ -782,7 +803,7 @@
 
     p.querySelector('[data-cerrar]').addEventListener('click', cerrarPopover);
     const ed = p.querySelector('[data-editar]');
-    if (ed) ed.addEventListener('click', () => abrirFormulario({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, area: r.area, descripcion: r.descripcion, enlace: r.enlace }, ancla, r));
+    if (ed) ed.addEventListener('click', () => abrirFormulario({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, area: r.area, descripcion: r.descripcion, enlace: r.enlace, tarea_id: r.tarea_id || '' }, ancla, r));
     const el = p.querySelector('[data-eliminar]');
     if (el) el.addEventListener('click', () => {
       if (!el.dataset.confirmar) { el.dataset.confirmar = '1'; el.title = 'Haz clic otra vez para eliminar'; el.style.color = 'var(--rech)'; aviso('Haz clic otra vez en la papelera para eliminar.'); return; }
@@ -899,6 +920,237 @@
     $('#sel-persona').value = '';
     renderViendo();
     cargarCalendario();
+  }
+
+  /* =================================================================
+   * Tareas y metas
+   * ================================================================= */
+
+  const ESTADOS_TAREA = { pendiente: 'Pendiente', en_progreso: 'En curso', hecha: 'Hecha', cancelada: 'Cancelada' };
+  const abierta = (t) => t.estado === 'pendiente' || t.estado === 'en_progreso';
+  const tituloTarea = (id) => { const t = S.misTareas.find((x) => x.id === id); return t ? t.titulo : ''; };
+  const finSemanaStr = () => { const h = hoy(); return ymd(sumarDias(h, (7 - h.getDay()) % 7)); };
+  const finMesStr = () => { const h = hoy(); return ymd(new Date(h.getFullYear(), h.getMonth() + 1, 0)); };
+  const diasEntre = (a, b) => Math.round((aFecha(b) - aFecha(a)) / 864e5);
+
+  function textoPlazo(t) {
+    const hs = hoyStr();
+    if (abierta(t) && t.plazo < hs) {
+      const n = diasEntre(t.plazo, hs);
+      return `<span class="vence">Venció ${n === 1 ? 'ayer' : `hace ${n} días`}</span>`;
+    }
+    const base = cap(fmtFechaCorta(t.plazo));
+    const extra = t.plazo === hs ? ' · hoy' : t.tipo_plazo === 'semana' ? ' · esta semana' : t.tipo_plazo === 'mes' ? ' · fin de mes' : '';
+    return `<span>Plazo: ${base}${extra}</span>`;
+  }
+
+  async function cargarMisTareas() {
+    try {
+      const j = await api('tareas', { vista: 'mias' });
+      S.misTareas = j.tareas;
+    } catch (e) {
+      S.misTareas = [];
+    }
+    renderMetasSemana();
+  }
+
+  function renderMetasSemana() {
+    const fs = finSemanaStr(), hs = hoyStr();
+    const metas = S.misTareas.filter((t) => abierta(t) && t.plazo <= fs);
+    const b = $('#cuenta-tareas');
+    b.textContent = metas.length;
+    b.hidden = !metas.length;
+    $('#metas-semana').innerHTML = metas.length ? metas.map((t) => `<li>
+        <button type="button" class="check" data-tarea-estado="hecha" data-id="${esc(t.id)}" aria-label="Marcar como hecha: ${esc(t.titulo)}">${ICONOS.marca}</button>
+        <span>${esc(t.titulo)}<small class="${t.plazo < hs ? 'vence' : ''}">${t.plazo < hs ? 'Vencida' : t.plazo === hs ? 'Vence hoy' : cap(fmtFechaCorta(t.plazo))}${t.prioridad === 'alta' ? ' · prioridad alta' : ''}</small></span>
+      </li>`).join('') : '<li class="vacio">No tienes metas pendientes para esta semana.</li>';
+  }
+
+  function htmlTarea(t, enGrupo) {
+    const yo = S.usuario.id;
+    const mia = t.asignada_a_id === yo, creador = t.asignada_por_id === yo;
+    const acciones = [];
+    if (mia && abierta(t)) {
+      if (t.estado === 'pendiente') acciones.push(`<button class="btn texto chico" type="button" data-tarea-estado="en_progreso" data-id="${esc(t.id)}">Empezar</button>`);
+      acciones.push(`<button class="btn texto chico" type="button" data-tarea-horas data-id="${esc(t.id)}">Registrar horas</button>`);
+      acciones.push(`<button class="btn texto chico" type="button" data-tarea-nota data-id="${esc(t.id)}">${t.nota ? 'Editar nota' : 'Agregar nota'}</button>`);
+    }
+    if (creador) {
+      acciones.push(`<button class="btn texto chico" type="button" data-tarea-editar data-id="${esc(t.id)}">Editar</button>`);
+      if (abierta(t)) acciones.push(`<button class="btn peligro chico" type="button" data-tarea-estado="cancelada" data-id="${esc(t.id)}">Cancelar</button>`);
+      else acciones.push(`<button class="btn texto chico" type="button" data-tarea-estado="pendiente" data-id="${esc(t.id)}">Reabrir</button>`);
+      acciones.push(`<button class="btn peligro chico" type="button" data-tarea-eliminar data-id="${esc(t.id)}">Eliminar</button>`);
+    }
+    const check = mia && t.estado !== 'cancelada'
+      ? `<button type="button" class="check${t.estado === 'hecha' ? ' marcado' : ''}" data-tarea-estado="${t.estado === 'hecha' ? 'pendiente' : 'hecha'}" data-id="${esc(t.id)}" aria-label="${t.estado === 'hecha' ? 'Marcar como no hecha' : 'Marcar como hecha'}">${ICONOS.marca}</button>`
+      : `<span class="check-vacio"></span>`;
+    const quien = mia ? (creador ? '' : `Asignada por ${esc(t.asignada_por)}`)
+      : enGrupo ? (creador ? '' : `Asignada por ${esc(t.asignada_por)}`) : `Para ${esc(t.asignada_a)} · ${esc(t.area)}`;
+    return `<article class="tarea ${esc(t.estado)}${t.prioridad === 'alta' && abierta(t) ? ' alta' : ''}">
+      ${check}
+      <div>
+        <h4>${esc(t.titulo)}</h4>
+        ${t.descripcion ? `<p>${esc(t.descripcion)}</p>` : ''}
+        ${t.nota ? `<div class="nota-tarea"><b>Nota:</b> ${esc(t.nota)}</div>` : ''}
+        <div class="tarea-meta">
+          <span class="estado ${esc(t.estado)}">${ESTADOS_TAREA[t.estado] || esc(t.estado)}</span>
+          ${textoPlazo(t)}
+          ${t.prioridad === 'alta' ? '<span class="alta-chip">Prioridad alta</span>' : ''}
+          ${quien ? `<span>${quien}</span>` : ''}
+          <span>${fmtH(t.horas || 0)} h dedicadas</span>
+        </div>
+      </div>
+      <div class="tarea-acciones">${acciones.join('')}</div>
+    </article>`;
+  }
+
+  let tareasVisibles = [];
+
+  async function cargarTareas() {
+    const v = S.vistaTareas;
+    $$('[data-vista-tareas]').forEach((b) => b.classList.toggle('activa', b.dataset.vistaTareas === v));
+    const lista = $('#tar-lista');
+    lista.innerHTML = '<p class="vacio-tareas">Cargando…</p>';
+    try {
+      const j = await api('tareas', { vista: v });
+      tareasVisibles = j.tareas;
+      if (v === 'mias') { S.misTareas = j.tareas; renderMetasSemana(); }
+      lista.innerHTML = v === 'mias' ? htmlPorPlazo(j.tareas) : htmlPorPersona(j.tareas);
+    } catch (e) {
+      lista.innerHTML = '';
+      aviso(e.message, true);
+    }
+  }
+
+  function htmlPorPlazo(ts) {
+    if (!ts.length) return '<p class="vacio-tareas">No tienes tareas asignadas. Cuando tu coordinador te asigne una, aparecerá aquí.</p>';
+    const hs = hoyStr(), fs = finSemanaStr(), fm = finMesStr();
+    const grupos = [
+      ['vencidas', 'Vencidas', (t) => abierta(t) && t.plazo < hs],
+      ['', 'Esta semana', (t) => abierta(t) && t.plazo >= hs && t.plazo <= fs],
+      ['', 'Este mes', (t) => abierta(t) && t.plazo > fs && t.plazo <= fm],
+      ['', 'Más adelante', (t) => abierta(t) && t.plazo > fm],
+      ['', 'Terminadas', (t) => !abierta(t)],
+    ];
+    return grupos.map(([clase, titulo, f]) => {
+      const g = ts.filter(f);
+      if (!g.length) return '';
+      return `<section class="grupo-tareas"><div class="grupo-cab ${clase}"><h3>${titulo}</h3><span class="sutil">${g.length}</span></div>${g.map(htmlTarea).join('')}</section>`;
+    }).join('');
+  }
+
+  function htmlPorPersona(ts) {
+    if (!ts.length) {
+      return S.vistaTareas === 'asignadas'
+        ? '<p class="vacio-tareas">Todavía no asignaste tareas. Usa “Nueva tarea” para asignar la primera.</p>'
+        : '<p class="vacio-tareas">No hay tareas en el grupo.</p>';
+    }
+    const porPersona = {};
+    ts.forEach((t) => { (porPersona[t.asignada_a_id] = porPersona[t.asignada_a_id] || []).push(t); });
+    return Object.values(porPersona)
+      .sort((a, b) => a[0].area.localeCompare(b[0].area) || a[0].asignada_a.localeCompare(b[0].asignada_a))
+      .map((g) => {
+        const vivas = g.filter((t) => t.estado !== 'cancelada');
+        const hechas = vivas.filter((t) => t.estado === 'hecha').length;
+        const vencidas = g.filter((t) => abierta(t) && t.plazo < hoyStr()).length;
+        const horas = g.reduce((s, t) => s + (t.horas || 0), 0);
+        return `<section class="grupo-tareas"><div class="grupo-cab">
+          <h3>${esc(g[0].asignada_a)}</h3><span class="sutil">${esc(g[0].area)} · ${hechas} de ${vivas.length} hechas · ${fmtH(horas)} h${vencidas ? ` · <b style="color:var(--rech)">${vencidas} vencida${vencidas > 1 ? 's' : ''}</b>` : ''}</span>
+          <div class="progreso"><span style="width:${vivas.length ? hechas / vivas.length * 100 : 0}%"></span></div>
+        </div>${g.map((t) => htmlTarea(t, true)).join('')}</section>`;
+      }).join('');
+  }
+
+  async function cambiarEstadoTarea(id, estado, boton) {
+    if (estado === 'cancelada' && boton && !boton.dataset.confirmar) {
+      boton.dataset.confirmar = '1'; boton.textContent = '¿Cancelar? Confirmar'; return;
+    }
+    try {
+      await api('actualizarTarea', { id, estado });
+      aviso({ hecha: 'Tarea marcada como hecha.', en_progreso: 'Tarea en curso.', pendiente: 'Tarea reabierta.', cancelada: 'Tarea cancelada.' }[estado]);
+      if (S.pagina === 'tareas') cargarTareas(); else cargarMisTareas();
+      if (S.pagina === 'tareas' && S.vistaTareas !== 'mias') cargarMisTareas();
+    } catch (e) {
+      aviso(e.message, true);
+    }
+  }
+
+  function buscarTarea(id) { return tareasVisibles.find((t) => t.id === id) || S.misTareas.find((t) => t.id === id); }
+
+  function registrarHorasDeTarea(t) {
+    const ini = Math.max(0, Math.min(1380, bajar(minutosAhoraLima()) - 60));
+    irAPagina('calendario');
+    abrirFormulario({ fecha: hoyStr(), inicio: deMin(ini), fin: deMin(ini + 60), descripcion: t.titulo, tarea_id: t.id }, $('#btn-crear'));
+  }
+
+  function abrirDialogoTarea(t) {
+    const fondo = $('#dialogo-tarea');
+    $('#dt-titulo-dialogo').textContent = t ? 'Editar tarea' : 'Nueva tarea';
+    $('#dt-ok').textContent = t ? 'Guardar' : 'Asignar';
+    $('#dt-para').innerHTML = S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : ''}</option>`).join('');
+    $('#dt-para').disabled = !!t;
+    if (t) {
+      if (!S.equipo.some((m) => m.id === t.asignada_a_id)) $('#dt-para').innerHTML = `<option value="${esc(t.asignada_a_id)}">${esc(t.asignada_a)}</option>`;
+      $('#dt-para').value = t.asignada_a_id;
+    }
+    $('#dt-titulo').value = t ? t.titulo : '';
+    $('#dt-desc').value = t ? t.descripcion : '';
+    $('#dt-alta').checked = !!t && t.prioridad === 'alta';
+    $('#dt-fin-semana').textContent = cap(fmtFechaCorta(finSemanaStr()));
+    $('#dt-fin-mes').textContent = cap(fmtFechaCorta(finMesStr()));
+    const tipo = t ? t.tipo_plazo : 'semana';
+    $$('[name=dt-plazo]').forEach((r) => { r.checked = r.value === tipo; });
+    $('#dt-fecha').min = hoyStr();
+    $('#dt-fecha').value = t ? t.plazo : '';
+    fondo.hidden = false;
+    setTimeout(() => (t ? $('#dt-titulo') : $('#dt-para')).focus(), 20);
+    $('#dt-cancelar').onclick = () => { fondo.hidden = true; };
+    $('#dt-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const tipoPlazo = $$('[name=dt-plazo]').find((r) => r.checked).value;
+      const plazo = tipoPlazo === 'semana' ? finSemanaStr() : tipoPlazo === 'mes' ? finMesStr() : $('#dt-fecha').value;
+      const d = {
+        asignada_a_id: $('#dt-para').value, titulo: $('#dt-titulo').value.trim(), descripcion: $('#dt-desc').value.trim(),
+        plazo, tipo_plazo: tipoPlazo, prioridad: $('#dt-alta').checked ? 'alta' : 'normal',
+      };
+      if (!d.asignada_a_id) { aviso('No tienes a quién asignar tareas.', true); return; }
+      if (d.titulo.length < 3) { aviso('Escribe la tarea (al menos 3 caracteres).', true); $('#dt-titulo').focus(); return; }
+      if (!plazo) { aviso('Elige la fecha límite.', true); $('#dt-fecha').focus(); return; }
+      const btn = $('#dt-ok');
+      btn.disabled = true;
+      try {
+        if (t) await api('editarTarea', Object.assign({ id: t.id }, d));
+        else await api('crearTarea', d);
+        fondo.hidden = true;
+        const m = S.equipo.find((x) => x.id === d.asignada_a_id);
+        aviso(t ? 'Tarea actualizada.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
+        S.vistaTareas = 'asignadas';
+        if (S.pagina === 'tareas') cargarTareas(); else location.hash = 'tareas';
+      } catch (e) {
+        aviso(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+
+  async function manejarClicTarea(ev) {
+    const b = ev.target.closest('button[data-id]');
+    if (!b) return;
+    const id = b.dataset.id;
+    if (b.dataset.tareaEstado) { cambiarEstadoTarea(id, b.dataset.tareaEstado, b); return; }
+    const t = buscarTarea(id);
+    if (!t) return;
+    if ('tareaHoras' in b.dataset) registrarHorasDeTarea(t);
+    else if ('tareaEditar' in b.dataset) abrirDialogoTarea(t);
+    else if ('tareaNota' in b.dataset) {
+      const nota = await pedirTexto('Nota para quien te asignó la tarea', 'Avance, dudas o dónde está el resultado.', 'Guardar nota');
+      if (nota === null) return;
+      try { await api('actualizarTarea', { id, estado: t.estado, nota }); aviso('Nota guardada.'); cargarTareas(); } catch (e) { aviso(e.message, true); }
+    } else if ('tareaEliminar' in b.dataset) {
+      if (!b.dataset.confirmar) { b.dataset.confirmar = '1'; b.textContent = '¿Eliminar? Confirmar'; return; }
+      try { await api('eliminarTarea', { id }); aviso('Tarea eliminada.'); cargarTareas(); } catch (e) { aviso(e.message, true); }
+    }
   }
 
   /* =================================================================
@@ -1116,6 +1368,15 @@
     };
     if (acciones[k]) { ev.preventDefault(); acciones[k](); }
   });
+
+  $('#tar-lista').addEventListener('click', manejarClicTarea);
+  $('#metas-semana').addEventListener('click', manejarClicTarea);
+  $('#tar-vistas').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-vista-tareas]');
+    if (b) { S.vistaTareas = b.dataset.vistaTareas; cargarTareas(); }
+  });
+  $('#tar-nueva').addEventListener('click', () => abrirDialogoTarea(null));
+  $('#dialogo-tarea').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('#dialogo-tarea').hidden = true; });
 
   $('#rev-estado').addEventListener('change', cargarRevision);
   $('#rev-mes').addEventListener('change', cargarRevision);

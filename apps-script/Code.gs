@@ -5,7 +5,11 @@
  * Hojas que usa (las crea la función `configurar`):
  *   Miembros  : id | nombre | email | area | rol | coordina | codigo | activo
  *   Registros : id | creado | miembro_id | miembro | area | fecha | inicio | fin | horas |
- *               descripcion | enlace | estado | revisado_por | revisado_en | comentario
+ *               descripcion | enlace | estado | revisado_por | revisado_en | comentario | tarea_id
+ *   Tareas    : id | creada | asignada_por_id | asignada_por | asignada_a_id | asignada_a | area |
+ *               titulo | descripcion | plazo | tipo_plazo | prioridad | estado | completada_en | nota
+ *               (metas con plazo; plazo 'yyyy-MM-dd'; tipo_plazo semana|mes|fecha; prioridad
+ *               alta|normal; estado pendiente|en_progreso|hecha|cancelada)
  *
  * Cada persona pertenece a un área (Redacción, Redes sociales, Diseño…).
  *
@@ -19,18 +23,29 @@
  *                   por encima para aprobarlas.
  *   Nadie aprueba sus propias horas.
  *
+ * Tareas: quien puede revisar a una persona (misma jerarquía de arriba) puede asignarle tareas,
+ * editarlas, cancelarlas y borrarlas (solo las que creó). La persona asignada las ve, cambia su
+ * estado (pendiente / en_progreso / hecha), deja una nota y puede ligar sus horas a la tarea
+ * con `tarea_id` en Registros. El admin ve todas las tareas.
+ *
  * Todas las peticiones llegan por POST con un cuerpo JSON: { accion, codigo, ... }.
  * El frontend envía el cuerpo como text/plain para evitar el preflight CORS.
  */
 
 const HOJA_MIEMBROS = 'Miembros';
 const HOJA_REGISTROS = 'Registros';
+const HOJA_TAREAS = 'Tareas';
 
 const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo'];
 const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'area', 'fecha', 'inicio', 'fin', 'horas',
-  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario'];
+  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario', 'tarea_id'];
+const COLS_TAREAS = ['id', 'creada', 'asignada_por_id', 'asignada_por', 'asignada_a_id', 'asignada_a', 'area',
+  'titulo', 'descripcion', 'plazo', 'tipo_plazo', 'prioridad', 'estado', 'completada_en', 'nota'];
 
 const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
+const ESTADOS_TAREA = ['pendiente', 'en_progreso', 'hecha', 'cancelada'];
+const TIPOS_PLAZO = ['semana', 'mes', 'fecha'];
+const PRIORIDADES = ['alta', 'normal'];
 const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el Web App
 const ZONA = 'America/Lima';
 
@@ -57,6 +72,11 @@ function doPost(e) {
       miembrosEquipo: () => ({ miembros: miembrosEquipo_(usuario, ctx) }),
       revisar: () => revisar_(usuario, datos, ctx),
       resumen: () => resumen_(usuario, datos, ctx),
+      tareas: () => tareas_(usuario, datos),
+      crearTarea: () => crearTarea_(usuario, datos, ctx),
+      editarTarea: () => editarTarea_(usuario, datos),
+      actualizarTarea: () => actualizarTarea_(usuario, datos),
+      eliminarTarea: () => eliminarTarea_(usuario, datos),
     };
     const fn = acciones[datos.accion];
     if (!fn) throw new ErrorApp('Acción desconocida.');
@@ -182,13 +202,23 @@ function estadoInicial_(u) {
     : { estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' };
 }
 
+/** Valida la tarea a la que se liga un registro: debe ser del usuario y no estar cancelada. '' si no hay. */
+function validarTareaLigada_(u, tareaId) {
+  const id = String(tareaId || '').trim();
+  if (!id) return '';
+  const t = leerTareas_().find(x => x.id === id);
+  if (!t || t.asignada_a_id !== u.id || t.estado === 'cancelada') throw new ErrorApp('Tarea inválida.');
+  return id;
+}
+
 function registrar_(u, d) {
   const c = validarCampos_(d);
   return conBloqueo_(() => {
     verificarCruce_(leerRegistros_(), u.id, c, null);
+    const tarea_id = validarTareaLigada_(u, d.tarea_id);
     const fila = Object.assign({
       id: Utilities.getUuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
-      area: u.area,
+      area: u.area, tarea_id,
     }, estadoInicial_(u), c);
     hoja_(HOJA_REGISTROS).appendRow(COLS_REGISTROS.map(col => seguro_(fila[col])));
     return { registro: fila };
@@ -207,7 +237,8 @@ function editar_(u, d) {
     if (r.miembro_id !== u.id) throw new ErrorApp('Solo puedes editar tus propios registros.');
     if (r.estado === 'aprobado' && !esAdmin_(u)) throw new ErrorApp('No se puede editar un registro aprobado.');
     verificarCruce_(filas, u.id, c, r.id);
-    const nuevo = Object.assign({}, r, c, estadoInicial_(u));
+    const tarea_id = validarTareaLigada_(u, d.tarea_id);
+    const nuevo = Object.assign({}, r, c, estadoInicial_(u), { tarea_id });
     hoja.getRange(i + 2, 1, 1, COLS_REGISTROS.length)
       .setValues([COLS_REGISTROS.map(col => seguro_(nuevo[col]))]);
     return { registro: nuevo };
@@ -320,14 +351,138 @@ function resumen_(u, d, ctx) {
     porArea: Object.values(porArea).sort((x, y) => (y.aprobadas + y.pendientes) - (x.aprobadas + x.pendientes)),
   };
   if (d.detalle) {
+    const titulos = {};
+    leerTareas_().forEach(t => { titulos[t.id] = t.titulo; });
     // Incluye los rechazados, con su estado, para poder filtrarlos en Excel.
     salida.detalle = base
       .sort((x, y) => x.fecha.localeCompare(y.fecha) || x.miembro.localeCompare(y.miembro) || x.inicio.localeCompare(y.inicio))
       .map(r => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol,
         area: r.area, descripcion: r.descripcion, enlace: r.enlace, estado: r.estado,
-        revisado_por: r.revisado_por, comentario: r.comentario }));
+        revisado_por: r.revisado_por, comentario: r.comentario, tarea: titulos[r.tarea_id] || '' }));
   }
   return salida;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tareas (metas con plazo)                                            */
+/* ------------------------------------------------------------------ */
+
+/** Valida y normaliza los campos editables de una tarea. `plazoActual`: plazo vigente (si se edita). */
+function validarCamposTarea_(d, plazoActual) {
+  const titulo = String(d.titulo || '').trim();
+  if (titulo.length < 3) throw new ErrorApp('Escribe un título (mín. 3 caracteres).');
+  if (titulo.length > 150) throw new ErrorApp('El título es muy largo (máx. 150).');
+  const descripcion = String(d.descripcion || '').trim();
+  if (descripcion.length > 1000) throw new ErrorApp('La descripción es muy larga (máx. 1000).');
+
+  const plazo = String(d.plazo || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(plazo)) throw new ErrorApp('Plazo inválido.');
+  const hoy = Utilities.formatDate(new Date(), ZONA, 'yyyy-MM-dd');
+  if (plazo < hoy && plazo !== plazoActual) throw new ErrorApp('El plazo no puede estar en el pasado.');
+
+  const tipo_plazo = d.tipo_plazo ? String(d.tipo_plazo) : 'fecha';
+  if (TIPOS_PLAZO.indexOf(tipo_plazo) === -1) throw new ErrorApp('Tipo de plazo inválido.');
+  const prioridad = d.prioridad ? String(d.prioridad) : 'normal';
+  if (PRIORIDADES.indexOf(prioridad) === -1) throw new ErrorApp('Prioridad inválida.');
+  return { titulo, descripcion, plazo, tipo_plazo, prioridad };
+}
+
+/** Suma de horas (no rechazadas) de los registros ligados a cada tarea: { tarea_id: horas }. */
+function horasPorTarea_() {
+  const h = {};
+  leerRegistros_().forEach(r => {
+    if (r.tarea_id && r.estado !== 'rechazado') h[r.tarea_id] = (h[r.tarea_id] || 0) + r.horas;
+  });
+  return h;
+}
+
+function tareas_(u, d) {
+  const vista = String(d.vista || 'mias');
+  let ts = leerTareas_();
+  if (vista === 'mias') ts = ts.filter(t => t.asignada_a_id === u.id);
+  else if (vista === 'asignadas') {
+    if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para asignar tareas.');
+    ts = ts.filter(t => t.asignada_por_id === u.id);
+  } else if (vista === 'todas') {
+    if (!esAdmin_(u)) throw new ErrorApp('Solo el administrador ve todas las tareas.');
+  } else throw new ErrorApp('Vista inválida.');
+  if (d.estado && ESTADOS_TAREA.indexOf(d.estado) !== -1) ts = ts.filter(t => t.estado === d.estado);
+
+  const horas = horasPorTarea_();
+  const abierta = t => t.estado === 'pendiente' || t.estado === 'en_progreso';
+  const abiertas = ts.filter(abierta).sort((a, b) => a.plazo.localeCompare(b.plazo));
+  const cerradas = ts.filter(t => !abierta(t)).sort((a, b) => b.plazo.localeCompare(a.plazo));
+  return { tareas: abiertas.concat(cerradas).map(t => Object.assign({}, t, { horas: horas[t.id] || 0 })) };
+}
+
+function crearTarea_(u, d, ctx) {
+  const p = ctx.porId[String(d.asignada_a_id || '')];
+  if (!p || !p.activo || !p.area || !puedeRevisar_(u, p.id, p.area, ctx)) {
+    throw new ErrorApp('No puedes asignar tareas a esa persona.');
+  }
+  const c = validarCamposTarea_(d, null);
+  return conBloqueo_(() => {
+    const fila = Object.assign({
+      id: Utilities.getUuid(), creada: new Date().toISOString(),
+      asignada_por_id: u.id, asignada_por: u.nombre,
+      asignada_a_id: p.id, asignada_a: p.nombre, area: p.area,
+    }, c, { estado: 'pendiente', completada_en: '', nota: '' });
+    hoja_(HOJA_TAREAS).appendRow(COLS_TAREAS.map(col => seguro_(fila[col])));
+    return { tarea: fila };
+  });
+}
+
+function escribirTarea_(hoja, i, t) {
+  hoja.getRange(i + 2, 1, 1, COLS_TAREAS.length).setValues([COLS_TAREAS.map(col => seguro_(t[col]))]);
+}
+
+function editarTarea_(u, d) {
+  return conBloqueo_(() => {
+    const { hoja, filas } = filasTareas_();
+    const i = filas.findIndex(t => t.id === String(d.id || ''));
+    if (i === -1) throw new ErrorApp('Tarea no encontrada.');
+    const t = filas[i];
+    if (t.asignada_por_id !== u.id) throw new ErrorApp('Solo quien creó la tarea puede editarla.');
+    const nueva = Object.assign({}, t, validarCamposTarea_(d, t.plazo));
+    escribirTarea_(hoja, i, nueva);
+    return { tarea: nueva };
+  });
+}
+
+function actualizarTarea_(u, d) {
+  const estado = String(d.estado || '');
+  if (ESTADOS_TAREA.indexOf(estado) === -1) throw new ErrorApp('Estado inválido.');
+  return conBloqueo_(() => {
+    const { hoja, filas } = filasTareas_();
+    const i = filas.findIndex(t => t.id === String(d.id || ''));
+    if (i === -1) throw new ErrorApp('Tarea no encontrada.');
+    const t = filas[i];
+    const creador = t.asignada_por_id === u.id, asignado = t.asignada_a_id === u.id;
+    if (!creador && !asignado) throw new ErrorApp('No tienes permiso sobre esta tarea.');
+    if (!creador && estado === 'cancelada') throw new ErrorApp('Solo quien creó la tarea puede cancelarla.');
+    const nueva = Object.assign({}, t, { estado });
+    if (asignado && d.nota !== undefined) {
+      nueva.nota = String(d.nota || '').trim();
+      if (nueva.nota.length > 500) throw new ErrorApp('La nota es muy larga (máx. 500).');
+    }
+    if (estado === 'hecha') {
+      if (t.estado !== 'hecha') nueva.completada_en = new Date().toISOString();
+    } else nueva.completada_en = '';
+    escribirTarea_(hoja, i, nueva);
+    return { tarea: nueva };
+  });
+}
+
+function eliminarTarea_(u, d) {
+  return conBloqueo_(() => {
+    const { hoja, filas } = filasTareas_();
+    const id = String(d.id || '');
+    const i = filas.findIndex(t => t.id === id);
+    if (i === -1) throw new ErrorApp('Tarea no encontrada.');
+    if (filas[i].asignada_por_id !== u.id) throw new ErrorApp('Solo quien creó la tarea puede eliminarla.');
+    hoja.deleteRow(i + 2);
+    return { eliminada: id };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -380,8 +535,32 @@ function limpiarRegistro_(r) {
     inicio: hora_(r.inicio), fin: hora_(r.fin), horas: Number(r.horas) || 0,
     descripcion: String(r.descripcion), enlace: String(r.enlace), estado: String(r.estado || 'pendiente'),
     revisado_por: String(r.revisado_por), revisado_en: String(r.revisado_en), comentario: String(r.comentario),
+    tarea_id: String(r.tarea_id || ''),
   };
 }
+
+function limpiarTarea_(r) {
+  const plazo = r.plazo instanceof Date
+    ? Utilities.formatDate(r.plazo, ZONA, 'yyyy-MM-dd') : String(r.plazo || '').trim();
+  return {
+    id: String(r.id), creada: String(r.creada), asignada_por_id: String(r.asignada_por_id),
+    asignada_por: String(r.asignada_por), asignada_a_id: String(r.asignada_a_id),
+    asignada_a: String(r.asignada_a), area: String(r.area), titulo: String(r.titulo),
+    descripcion: String(r.descripcion), plazo,
+    tipo_plazo: TIPOS_PLAZO.indexOf(String(r.tipo_plazo)) !== -1 ? String(r.tipo_plazo) : 'fecha',
+    prioridad: PRIORIDADES.indexOf(String(r.prioridad)) !== -1 ? String(r.prioridad) : 'normal',
+    estado: ESTADOS_TAREA.indexOf(String(r.estado)) !== -1 ? String(r.estado) : 'pendiente',
+    completada_en: String(r.completada_en || ''), nota: String(r.nota || ''),
+  };
+}
+
+function filasTareas_() {
+  const t = leerTabla_(HOJA_TAREAS, COLS_TAREAS);
+  t.filas = t.filas.filter(f => String(f.id).trim()).map(limpiarTarea_);
+  return t;
+}
+
+function leerTareas_() { return filasTareas_().filas; }
 
 /* ------------------------------------------------------------------ */
 /* Utilidades                                                          */
@@ -457,6 +636,14 @@ function configurar() {
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
   reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
+  // Hojas ya existentes: agrega el encabezado de tarea_id si falta.
+  const colTarea = COLS_REGISTROS.indexOf('tarea_id') + 1;
+  if (reg.getLastRow() > 0 && !String(reg.getRange(1, colTarea).getValues()[0][0] || '').trim()) {
+    reg.getRange(1, colTarea).setValue('tarea_id');
+    reg.getRange(1, colTarea).setFontWeight('bold');
+  }
+  const tar = crear(HOJA_TAREAS, COLS_TAREAS);
+  tar.getRange('J:J').setNumberFormat('@'); // plazo como texto
   ss.getSheetByName(HOJA_MIEMBROS).getRange('G:G').setNumberFormat('@'); // código como texto
   generarCodigos();
 }

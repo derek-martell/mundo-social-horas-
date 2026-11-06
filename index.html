@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="styles.css?v=202611061221">
+  <link rel="stylesheet" href="styles.css?v=202611062211">
 </head>
 <body>
   <div id="banner-demo" class="banner-demo" hidden>
@@ -64,6 +64,9 @@
         <a href="#calendario" data-pagina-link="calendario" title="Calendario">
           <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Calendario</span>
         </a>
+        <a href="#tareas" data-pagina-link="tareas" title="Tareas">
+          <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17"/></svg><span>Tareas</span><b id="cuenta-tareas" class="insignia" hidden></b>
+        </a>
         <a href="#por-aprobar" data-pagina-link="por-aprobar" data-solo-revisor hidden title="Por aprobar">
           <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg><span>Por aprobar</span><b id="cuenta-pendientes" class="insignia" hidden></b>
         </a>
@@ -104,6 +107,12 @@
             <div class="barra-estados" id="barra-estados"></div>
           </div>
           <ul class="filtros" id="filtros-estado"></ul>
+        </section>
+
+        <section class="bloque" id="bloque-metas">
+          <h2>Metas de esta semana</h2>
+          <ul class="metas" id="metas-semana"></ul>
+          <a href="#tareas" class="ver-todas">Ver todas mis tareas</a>
         </section>
 
         <p class="atajos sutil">Atajos: <kbd>C</kbd> registrar · <kbd>T</kbd> hoy · <kbd>D</kbd> <kbd>S</kbd> <kbd>M</kbd> vistas · <kbd>J</kbd>/<kbd>K</kbd> avanzar</p>
@@ -147,6 +156,25 @@
               <tbody id="rev-tabla"></tbody>
             </table>
           </div>
+        </section>
+
+        <!-- Tareas -->
+        <section id="pagina-tareas" class="pagina panel relleno" hidden>
+          <div class="cabecera">
+            <div>
+              <h2>Tareas y metas</h2>
+              <p class="sutil" id="tar-alcance"></p>
+            </div>
+            <div class="filtros-linea">
+              <div class="segmentos" id="tar-vistas" role="tablist" aria-label="Qué tareas ver">
+                <button type="button" data-vista-tareas="mias" class="activa">Mis tareas</button>
+                <button type="button" data-vista-tareas="asignadas" data-solo-revisor hidden>Asignadas por mí</button>
+                <button type="button" data-vista-tareas="todas" data-solo-admin hidden>Todo el grupo</button>
+              </div>
+              <button id="tar-nueva" class="btn primario" type="button" data-solo-revisor hidden>Nueva tarea</button>
+            </div>
+          </div>
+          <div id="tar-lista" class="tar-lista"></div>
         </section>
 
         <!-- Totales -->
@@ -206,10 +234,32 @@
       </div>
     </form>
   </div>
+  <div id="dialogo-tarea" class="dialogo-fondo" hidden>
+    <form id="dt-form" class="dialogo ancho" role="dialog" aria-modal="true" aria-labelledby="dt-titulo-dialogo">
+      <h2 id="dt-titulo-dialogo">Nueva tarea</h2>
+      <label class="campo-etiqueta" for="dt-para">Para</label>
+      <select id="dt-para" class="selector"></select>
+      <label class="campo-etiqueta" for="dt-titulo">Tarea o meta</label>
+      <input id="dt-titulo" class="selector" maxlength="150" placeholder="Ej.: Nota sobre la inflación de noviembre">
+      <label class="campo-etiqueta" for="dt-desc">Detalle <span class="sutil">(opcional)</span></label>
+      <textarea id="dt-desc" class="selector" rows="3" maxlength="1000" placeholder="Qué se espera, fuentes, formato…"></textarea>
+      <span class="campo-etiqueta">Plazo</span>
+      <div class="plazos" id="dt-plazos">
+        <label><input type="radio" name="dt-plazo" value="semana" checked><span>Esta semana<small id="dt-fin-semana"></small></span></label>
+        <label><input type="radio" name="dt-plazo" value="mes"><span>Fin de mes<small id="dt-fin-mes"></small></span></label>
+        <label><input type="radio" name="dt-plazo" value="fecha"><span>Otra fecha<small><input id="dt-fecha" type="date" aria-label="Fecha límite"></small></span></label>
+      </div>
+      <label class="en-linea"><input id="dt-alta" type="checkbox"> Prioridad alta</label>
+      <div class="dialogo-pie">
+        <button type="button" class="btn texto" id="dt-cancelar">Cancelar</button>
+        <button type="submit" class="btn primario" id="dt-ok">Asignar</button>
+      </div>
+    </form>
+  </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js?v=202611061221"></script>
-  <script src="demo.js?v=202611061221"></script>
-  <script src="app.js?v=202611061221"></script>
+  <script src="config.js?v=202611062211"></script>
+  <script src="demo.js?v=202611062211"></script>
+  <script src="app.js?v=202611062211"></script>
 </body>
 </html>
