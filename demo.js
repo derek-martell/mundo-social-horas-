@@ -48,7 +48,12 @@
     if (u.rol === 'admin') return m.rol !== 'miembro' || !tieneCoordinador(area || m.area);
     return false;
   }
-  const revisorDe = (m) => MIEMBROS.find((x) => puedeRevisar(x, m.id, m.area)) || MIEMBROS[0];
+  const AUTO = 'Aprobación automática (admin)';
+  const revisorDe = (m) => (m.rol === 'admin' ? { nombre: AUTO } : MIEMBROS.find((x) => puedeRevisar(x, m.id, m.area)) || MIEMBROS[0]);
+  const rolDe = (id) => (MIEMBROS.find((x) => x.id === id) || { rol: 'miembro' }).rol;
+  const estadoInicial = (u) => (u.rol === 'admin'
+    ? { estado: 'aprobado', revisado_por: AUTO, revisado_en: new Date().toISOString(), comentario: '' }
+    : { estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' });
 
   // Generador pseudoaleatorio con semilla, para que la demo sea igual en cada carga.
   let semilla = 42;
@@ -71,6 +76,7 @@
           const dur = elegir([45, 60, 90, 120, 150, 180]);
           let estado = k <= 6 ? (rnd() < 0.3 ? 'aprobado' : 'pendiente') : (rnd() < 0.94 ? 'aprobado' : 'rechazado');
           if (k === 0) estado = 'pendiente';
+          if (mi.rol === 'admin') estado = 'aprobado';
           registros.push({
             id: uuid(), creado: dia.toISOString() + b, miembro_id: mi.id, miembro: mi.nombre, area: mi.area,
             fecha: ymd(dia), inicio: hhmm(t), fin: hhmm(t + dur), horas: dur / 60,
@@ -111,23 +117,23 @@
     registrar(u, d) {
       const c = validar(d); cruce(u.id, c);
       const r = Object.assign({ id: uuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
-        area: u.area, estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' }, c);
+        area: u.area }, estadoInicial(u), c);
       registros.push(r);
       return { registro: copia(r) };
     },
     editar(u, d) {
       const r = registros.find((x) => x.id === d.id);
       if (!r || r.miembro_id !== u.id) throw new ErrorDemo('Registro no encontrado.');
-      if (r.estado === 'aprobado') throw new ErrorDemo('No se puede editar un registro aprobado.');
+      if (r.estado === 'aprobado' && u.rol !== 'admin') throw new ErrorDemo('No se puede editar un registro aprobado.');
       const c = validar(d); cruce(u.id, c, r.id);
-      Object.assign(r, c, { estado: 'pendiente', revisado_por: '', comentario: '' });
+      Object.assign(r, c, estadoInicial(u));
       return { registro: copia(r) };
     },
     misHoras: (u, d) => ({ registros: copia(registros.filter((r) => r.miembro_id === u.id && enRango(r, d)).sort(ordenar)) }),
     eliminar(u, d) {
       const i = registros.findIndex((x) => x.id === d.id);
       if (i === -1 || registros[i].miembro_id !== u.id) throw new ErrorDemo('Registro no encontrado.');
-      if (registros[i].estado === 'aprobado') throw new ErrorDemo('No se puede eliminar un registro aprobado.');
+      if (registros[i].estado === 'aprobado' && u.rol !== 'admin') throw new ErrorDemo('No se puede eliminar un registro aprobado.');
       registros.splice(i, 1);
       return { eliminado: d.id };
     },
@@ -155,22 +161,29 @@
       return { actualizados: n };
     },
     resumen(u, d) {
-      const rs = registros.filter((r) => (u.rol === 'admin' || r.miembro_id === u.id ||
-        (u.rol === 'coordinador' && u.coordina.map(norm).includes(norm(r.area)))) &&
-        r.estado !== 'rechazado' && (!d.soloAprobadas || r.estado === 'aprobado') &&
+      const base = registros.map((r) => Object.assign({}, r, { rol: rolDe(r.miembro_id) })).filter((r) =>
+        (u.rol === 'admin' || r.miembro_id === u.id || (u.rol === 'coordinador' && u.coordina.map(norm).includes(norm(r.area)))) &&
+        (!d.soloAprobadas || r.estado === 'aprobado') && (!d.rol || r.rol === d.rol) &&
         (!d.desde || r.fecha.slice(0, 7) >= d.desde) && (!d.hasta || r.fecha.slice(0, 7) <= d.hasta));
+      const rs = base.filter((r) => r.estado !== 'rechazado');
       const pm = {}, pa = {}; const t = { total: 0, aprobadas: 0, pendientes: 0, registros: rs.length };
       rs.forEach((r) => {
         const mes = r.fecha.slice(0, 7); const c = r.estado === 'aprobado' ? 'aprobadas' : 'pendientes';
         const k = r.miembro_id + mes;
-        (pm[k] = pm[k] || { miembro: r.miembro, area: r.area, mes, aprobadas: 0, pendientes: 0 })[c] += r.horas;
+        (pm[k] = pm[k] || { miembro: r.miembro, rol: r.rol, area: r.area, mes, aprobadas: 0, pendientes: 0 })[c] += r.horas;
         (pa[r.area] = pa[r.area] || { area: r.area, aprobadas: 0, pendientes: 0 })[c] += r.horas;
         t.total += r.horas; t[c] += r.horas;
       });
       const tot = (x) => x.aprobadas + x.pendientes;
-      return { totales: t,
+      const salida = { totales: t,
         porPersonaMes: Object.values(pm).sort((a, b) => b.mes.localeCompare(a.mes) || a.area.localeCompare(b.area) || a.miembro.localeCompare(b.miembro)),
         porArea: Object.values(pa).sort((a, b) => tot(b) - tot(a)) };
+      if (d.detalle) {
+        salida.detalle = base.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.miembro.localeCompare(b.miembro) || a.inicio.localeCompare(b.inicio))
+          .map((r) => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol, area: r.area,
+            descripcion: r.descripcion, enlace: r.enlace, estado: r.estado, revisado_por: r.revisado_por, comentario: r.comentario }));
+      }
+      return salida;
     },
   };
 

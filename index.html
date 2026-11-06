@@ -159,6 +159,12 @@
             <div class="filtros-linea">
               <label class="en-linea">Desde <input id="res-desde" class="selector" type="month"></label>
               <label class="en-linea">Hasta <input id="res-hasta" class="selector" type="month"></label>
+              <select id="res-rol" class="selector" aria-label="Rol" data-solo-revisor hidden>
+                <option value="">Todos los roles</option>
+                <option value="coordinador">Solo coordinadores</option>
+                <option value="miembro">Solo miembros</option>
+                <option value="admin">Solo admin</option>
+              </select>
               <label class="en-linea"><input id="res-aprobadas" type="checkbox"> Solo aprobadas</label>
             </div>
           </div>
@@ -166,7 +172,7 @@
           <h3>Por persona y mes</h3>
           <div class="tabla-envoltura">
             <table class="tabla">
-              <thead><tr><th>Mes</th><th>Miembro</th><th>Área</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+              <thead><tr><th>Mes</th><th>Miembro</th><th>Rol</th><th>Área</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
               <tbody id="res-persona"></tbody>
             </table>
           </div>
@@ -175,7 +181,10 @@
             <thead><tr><th>Área</th><th></th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
             <tbody id="res-area"></tbody>
           </table></div>
-          <button id="res-csv" class="btn borde" type="button">Descargar CSV</button>
+          <div class="exportar">
+            <button id="res-excel" class="btn borde" type="button">Descargar Excel</button>
+            <span class="sutil">Con los mismos filtros de arriba. Trae tres hojas (por persona y mes, por área y el detalle de cada registro), con filtros en cada columna.</span>
+          </div>
         </section>
       </main>
     </div>

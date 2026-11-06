@@ -77,7 +77,8 @@
   const enlaceSeguro = (u) => (/^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u.replace(/^https?:\/\//, '').slice(0, 48))}</a>` : '');
   const etiquetaEstado = (e) => `<span class="estado ${esc(e)}">${{ aprobado: 'Aprobado', pendiente: 'Pendiente', rechazado: 'Rechazado' }[e] || esc(e)}</span>`;
   const esRevisor = () => S.usuario && (S.usuario.rol === 'admin' || S.usuario.rol === 'coordinador');
-  const editable = (r) => !S.viendo && r.estado !== 'aprobado';
+  const editable = (r) => !S.viendo && (r.estado !== 'aprobado' || S.usuario.rol === 'admin');
+  const ROLES = { admin: 'Admin', coordinador: 'Coordinador', miembro: 'Miembro' };
   const rolDe = (id) => { const m = S.equipo.find((x) => x.id === id); return m ? m.rol : 'miembro'; };
 
   function leerPrefs() { try { return JSON.parse(localStorage.getItem(CLAVE_PREFS) || '{}'); } catch (e) { return {}; } }
@@ -178,6 +179,7 @@
     $('#rev-alcance').textContent = u.rol === 'admin'
       ? 'Horas de los coordinadores (y de quien esté en un área sin coordinador). Las del resto las aprueba el coordinador de cada área.'
       : 'Horas de los miembros de tu área: ' + (u.coordina.join(', ') || '—') + '. Tus propias horas las aprueba el administrador.';
+    if (u.rol === 'coordinador') { const o = $('#res-rol option[value="admin"]'); if (o) o.remove(); }
     $('#bloque-ver h2').textContent = u.rol === 'admin' ? 'Calendario de un coordinador' : 'Calendario de';
 
     if (esRevisor()) {
@@ -665,7 +667,7 @@
             <input id="pf-enlace" class="campo ancho" type="url" maxlength="500" placeholder="Agregar enlace (opcional)" value="${esc(v.enlace)}">
           </div></div>
           ${r && r.estado === 'rechazado' ? `<div class="nota"><b>Rechazado${r.revisado_por ? ' por ' + esc(r.revisado_por) : ''}:</b> ${esc(r.comentario)}<br>Al guardar, vuelve a quedar pendiente de aprobación.</div>` : ''}
-          ${!r ? '<div class="nota info">Quedará pendiente hasta que tu coordinador lo apruebe.</div>' : ''}
+          ${!r ? `<div class="nota info">${{ admin: 'Tus horas se aprueban automáticamente.', coordinador: 'Quedará pendiente hasta que el administrador lo apruebe.', miembro: 'Quedará pendiente hasta que tu coordinador lo apruebe.' }[S.usuario.rol]}</div>` : ''}
         </div>
         <div class="pop-pie">
           ${r ? `<button type="button" class="btn peligro" data-eliminar>Eliminar</button>` : ''}
@@ -722,7 +724,8 @@
         if (r) await api('editar', Object.assign({ id: r.id }, d));
         else await api('registrar', d);
         cerrarPopover();
-        aviso(r ? 'Registro actualizado.' : `${fmtDur(aMin(d.fin) - aMin(d.inicio))} registradas. Quedan pendientes de aprobación.`);
+        const dur = fmtDur(aMin(d.fin) - aMin(d.inicio));
+        aviso(r ? 'Registro actualizado.' : S.usuario.rol === 'admin' ? `${dur} registradas y aprobadas.` : `${dur} registradas. Quedan pendientes de aprobación.`);
         const f = aFecha(d.fecha);
         const { desde, hasta } = rango();
         if (f < desde || f > hasta) irAFecha(f); else cargarCalendario();
@@ -768,7 +771,7 @@
         <div class="pop-fila">${ICONOS.check}<div class="det-texto">${etiquetaEstado(r.estado)}
           ${r.revisado_por ? `<span class="sutil"> por ${esc(r.revisado_por)}</span>` : r.estado === 'pendiente' ? '<span class="sutil"> de aprobación</span>' : ''}</div></div>
         ${r.comentario ? `<div class="pop-fila">${ICONOS.comentario}<div class="det-texto">${esc(r.comentario)}</div></div>` : ''}
-        ${r.estado === 'aprobado' && !S.viendo ? '<div class="nota info">Las horas aprobadas ya no se pueden cambiar. Si hay un error, pide a tu coordinador que las devuelva a pendiente.</div>' : ''}
+        ${r.estado === 'aprobado' && !S.viendo && S.usuario.rol !== 'admin' ? '<div class="nota info">Las horas aprobadas ya no se pueden cambiar. Si hay un error, pide a tu coordinador que las devuelva a pendiente.</div>' : ''}
       </div>
       ${puedeAprobar ? `<div class="pop-pie">
         ${r.estado !== 'pendiente' ? '<button type="button" class="btn texto" data-revisar="pendiente">Devolver a pendiente</button>' : ''}
@@ -902,13 +905,10 @@
    * Totales
    * ================================================================= */
 
-  let ultimoResumen = null;
-
   async function cargarTotales() {
-    ['#res-persona', '#res-area'].forEach((s) => { $(s).innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>'; });
+    ['#res-persona', '#res-area'].forEach((s) => { $(s).innerHTML = '<tr><td colspan="7" class="vacio">Cargando…</td></tr>'; });
     try {
-      const j = await api('resumen', { desde: $('#res-desde').value, hasta: $('#res-hasta').value, soloAprobadas: $('#res-aprobadas').checked });
-      ultimoResumen = j;
+      const j = await api('resumen', filtrosTotales());
       const t = j.totales;
       $('#res-cifras').innerHTML = [
         [fmtH(t.total) + ' h', 'en total'], [fmtH(t.aprobadas) + ' h', 'aprobadas'], [fmtH(t.pendientes) + ' h', 'pendientes'], [t.registros, 'registros'],
@@ -916,8 +916,8 @@
       const tot = (x) => x.aprobadas + x.pendientes;
       const vacio = (n) => `<tr><td colspan="${n}" class="vacio">Sin horas en este periodo.</td></tr>`;
       $('#res-persona').innerHTML = j.porPersonaMes.length ? j.porPersonaMes.map((x) => `<tr>
-        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
-        <td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td><td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(6);
+        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td><span class="rol ${esc(x.rol)}">${ROLES[x.rol] || esc(x.rol)}</span></td><td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
+        <td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td><td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(7);
       const maxArea = Math.max(1, ...j.porArea.map(tot));
       $('#res-area').innerHTML = j.porArea.length ? j.porArea.map((x) => `<tr>
         <td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
@@ -929,18 +929,76 @@
     }
   }
 
-  function descargarCSV() {
-    const r = ultimoResumen;
-    if (!r) return;
-    const q = (v) => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
-    const filas = [['mes', 'miembro', 'area', 'aprobadas', 'pendientes', 'total']]
-      .concat(r.porPersonaMes.map((x) => [x.mes, x.miembro, x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]));
-    const blob = new Blob(['﻿' + filas.map((l) => l.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `horas-mundo-social-${hoyStr()}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  function filtrosTotales() {
+    return {
+      desde: $('#res-desde').value, hasta: $('#res-hasta').value,
+      soloAprobadas: $('#res-aprobadas').checked, rol: esRevisor() ? $('#res-rol').value : '',
+    };
+  }
+
+  /** Carga SheetJS (la librería que arma el Excel) solo cuando hace falta. */
+  let promesaXLSX = null;
+  function cargarXLSX() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (promesaXLSX) return promesaXLSX;
+    const fuentes = [
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+    ];
+    const probar = (i) => new Promise((ok, mal) => {
+      const sc = document.createElement('script');
+      sc.src = fuentes[i];
+      sc.onload = () => (window.XLSX ? ok(window.XLSX) : mal());
+      sc.onerror = mal;
+      document.head.appendChild(sc);
+    }).catch(() => {
+      if (i + 1 < fuentes.length) return probar(i + 1);
+      throw new Error('No se pudo cargar el generador de Excel. Revisa tu conexión e intenta de nuevo.');
+    });
+    promesaXLSX = probar(0).catch((e) => { promesaXLSX = null; throw e; });
+    return promesaXLSX;
+  }
+
+  /** Crea una hoja con encabezados, anchos de columna y filtros en cada columna. */
+  function hojaConFiltros(XLSX, encabezados, filas, anchos) {
+    const ws = XLSX.utils.aoa_to_sheet([encabezados].concat(filas), { cellDates: true, dateNF: 'dd/mm/yyyy' });
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: filas.length, c: encabezados.length - 1 } }) };
+    ws['!cols'] = anchos.map((w) => ({ wch: w }));
+    return ws;
+  }
+
+  async function descargarExcel(boton) {
+    const texto = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = 'Preparando…';
+    try {
+      const [XLSX, j] = await Promise.all([cargarXLSX(), api('resumen', Object.assign(filtrosTotales(), { detalle: true }))]);
+      const rol = (r) => ROLES[r] || r;
+      const estado = (e) => ({ aprobado: 'Aprobado', pendiente: 'Pendiente', rechazado: 'Rechazado' }[e] || e);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
+        ['Mes', 'Miembro', 'Rol', 'Área', 'Horas aprobadas', 'Horas pendientes', 'Horas en total'],
+        j.porPersonaMes.map((x) => [x.mes, x.miembro, rol(x.rol), x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]),
+        [10, 24, 14, 18, 16, 16, 15]), 'Por persona y mes');
+      XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
+        ['Área', 'Horas aprobadas', 'Horas pendientes', 'Horas en total'],
+        j.porArea.map((x) => [x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]),
+        [20, 16, 16, 15]), 'Por área');
+      XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
+        ['Fecha', 'Inicio', 'Fin', 'Horas', 'Miembro', 'Rol', 'Área', 'Descripción', 'Enlace', 'Estado', 'Revisado por', 'Comentario'],
+        j.detalle.map((r) => [aFecha(r.fecha), r.inicio, r.fin, r.horas, r.miembro, rol(r.rol), r.area, r.descripcion,
+          r.enlace, estado(r.estado), r.revisado_por, r.comentario]),
+        [11, 7, 7, 7, 22, 13, 16, 50, 30, 11, 22, 30]), 'Detalle');
+      const f = filtrosTotales();
+      const periodo = f.desde === f.hasta ? f.desde : `${f.desde || 'inicio'}_a_${f.hasta || 'hoy'}`;
+      XLSX.writeFile(wb, `horas-mundo-social-${periodo}${f.rol ? '-' + f.rol : ''}.xlsx`);
+      aviso('Excel descargado.');
+    } catch (e) {
+      aviso(e.message, true);
+    } finally {
+      boton.disabled = false;
+      boton.textContent = texto;
+    }
   }
 
   /* =================================================================
@@ -1076,8 +1134,8 @@
   const mesHoy = hoyStr().slice(0, 7);
   $('#res-desde').value = mesHoy;
   $('#res-hasta').value = mesHoy;
-  ['#res-desde', '#res-hasta', '#res-aprobadas'].forEach((s) => $(s).addEventListener('change', cargarTotales));
-  $('#res-csv').addEventListener('click', descargarCSV);
+  ['#res-desde', '#res-hasta', '#res-aprobadas', '#res-rol'].forEach((s) => $(s).addEventListener('change', cargarTotales));
+  $('#res-excel').addEventListener('click', (ev) => descargarExcel(ev.currentTarget));
 
   // Mantener la línea de "ahora" al día.
   setInterval(() => { if (S.usuario && S.pagina === 'calendario' && S.vista !== 'mes' && !arrastre && $('#popover').hidden) renderTiempo(); }, 60000);

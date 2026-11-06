@@ -15,6 +15,8 @@
  *                   "coordina" (separadas por comas). Sus propias horas las aprueba el admin.
  *   admin        -> aprueba las horas de los coordinadores (y de los miembros de un área que
  *                   no tenga coordinador activo). En Totales ve el resumen de todo el grupo.
+ *                   Sus propias horas se aprueban solas al registrarlas, porque nadie está
+ *                   por encima para aprobarlas.
  *   Nadie aprueba sus propias horas.
  *
  * Todas las peticiones llegan por POST con un cuerpo JSON: { accion, codigo, ... }.
@@ -54,7 +56,7 @@ function doPost(e) {
       porRevisar: () => ({ registros: registrosParaRevisar_(usuario, datos, ctx) }),
       miembrosEquipo: () => ({ miembros: miembrosEquipo_(usuario, ctx) }),
       revisar: () => revisar_(usuario, datos, ctx),
-      resumen: () => resumen_(usuario, datos),
+      resumen: () => resumen_(usuario, datos, ctx),
     };
     const fn = acciones[datos.accion];
     if (!fn) throw new ErrorApp('Acción desconocida.');
@@ -171,20 +173,30 @@ function verificarCruce_(filas, miembroId, c, ignorarId) {
   }
 }
 
+const APROBACION_AUTOMATICA = 'Aprobación automática (admin)';
+
+/** Estado inicial de un registro: el del admin queda aprobado; el resto, pendiente. */
+function estadoInicial_(u) {
+  return esAdmin_(u)
+    ? { estado: 'aprobado', revisado_por: APROBACION_AUTOMATICA, revisado_en: new Date().toISOString(), comentario: '' }
+    : { estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' };
+}
+
 function registrar_(u, d) {
   const c = validarCampos_(d);
   return conBloqueo_(() => {
     verificarCruce_(leerRegistros_(), u.id, c, null);
     const fila = Object.assign({
       id: Utilities.getUuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
-      area: u.area, estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '',
-    }, c);
+      area: u.area,
+    }, estadoInicial_(u), c);
     hoja_(HOJA_REGISTROS).appendRow(COLS_REGISTROS.map(col => seguro_(fila[col])));
     return { registro: fila };
   });
 }
 
-/** Edita un registro propio no aprobado. Vuelve a quedar pendiente de aprobación. */
+/** Edita un registro propio no aprobado (el admin puede editar los suyos aunque estén aprobados).
+ *  Vuelve a quedar pendiente de aprobación, salvo los del admin. */
 function editar_(u, d) {
   const c = validarCampos_(d);
   return conBloqueo_(() => {
@@ -193,9 +205,9 @@ function editar_(u, d) {
     if (i === -1) throw new ErrorApp('Registro no encontrado.');
     const r = filas[i];
     if (r.miembro_id !== u.id) throw new ErrorApp('Solo puedes editar tus propios registros.');
-    if (r.estado === 'aprobado') throw new ErrorApp('No se puede editar un registro aprobado.');
+    if (r.estado === 'aprobado' && !esAdmin_(u)) throw new ErrorApp('No se puede editar un registro aprobado.');
     verificarCruce_(filas, u.id, c, r.id);
-    const nuevo = Object.assign({}, r, c, { estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' });
+    const nuevo = Object.assign({}, r, c, estadoInicial_(u));
     hoja.getRange(i + 2, 1, 1, COLS_REGISTROS.length)
       .setValues([COLS_REGISTROS.map(col => seguro_(nuevo[col]))]);
     return { registro: nuevo };
@@ -213,7 +225,7 @@ function eliminar_(u, id) {
     if (i === -1) throw new ErrorApp('Registro no encontrado.');
     const r = filas[i];
     if (r.miembro_id !== u.id) throw new ErrorApp('Solo puedes eliminar tus propios registros.');
-    if (r.estado === 'aprobado') throw new ErrorApp('No se puede eliminar un registro aprobado.');
+    if (r.estado === 'aprobado' && !esAdmin_(u)) throw new ErrorApp('No se puede eliminar un registro aprobado.');
     hoja.deleteRow(i + 2);
     return { eliminado: id };
   });
@@ -271,37 +283,51 @@ function revisar_(u, d, ctx) {
  * Totales. Admin: todo el grupo. Coordinador: sus áreas (incluye sus propias horas).
  * Miembro: solo él mismo.
  * d.desde / d.hasta: 'yyyy-MM' opcionales. d.soloAprobadas: boolean.
+ * d.rol: 'admin' | 'coordinador' | 'miembro' para filtrar por rol (opcional).
+ * d.detalle: true para devolver también cada registro (para exportar a Excel).
  */
-function resumen_(u, d) {
-  let rs = leerRegistros_();
+function resumen_(u, d, ctx) {
+  const rolDe = id => (ctx.porId[id] && ctx.porId[id].rol) || 'miembro';
+  let base = leerRegistros_().map(r => Object.assign(r, { rol: rolDe(r.miembro_id) }));
   if (!esAdmin_(u)) {
-    rs = rs.filter(r => r.miembro_id === u.id ||
+    base = base.filter(r => r.miembro_id === u.id ||
       (u.rol === 'coordinador' && u.coordina.indexOf(normalizar_(r.area)) !== -1));
   }
   const desde = /^\d{4}-\d{2}$/.test(d.desde || '') ? d.desde : '';
   const hasta = /^\d{4}-\d{2}$/.test(d.hasta || '') ? d.hasta : '';
-  rs = rs.filter(r => r.estado !== 'rechazado')
-    .filter(r => !d.soloAprobadas || r.estado === 'aprobado')
+  const rol = ['admin', 'coordinador', 'miembro'].indexOf(d.rol) !== -1 ? d.rol : '';
+  base = base.filter(r => !d.soloAprobadas || r.estado === 'aprobado')
+    .filter(r => !rol || r.rol === rol)
     .filter(r => (!desde || r.fecha.slice(0, 7) >= desde) && (!hasta || r.fecha.slice(0, 7) <= hasta));
+  const rs = base.filter(r => r.estado !== 'rechazado'); // los rechazados no suman horas
 
   const porPersonaMes = {}, porArea = {};
   let total = 0, aprobadas = 0, pendientes = 0;
   rs.forEach(r => {
     const mes = r.fecha.slice(0, 7);
     const k = r.miembro_id + '|' + mes;
-    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, area: r.area, mes, aprobadas: 0, pendientes: 0 });
+    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, rol: r.rol, area: r.area, mes, aprobadas: 0, pendientes: 0 });
     const a = porArea[r.area] || (porArea[r.area] = { area: r.area, aprobadas: 0, pendientes: 0 });
     const campo = r.estado === 'aprobado' ? 'aprobadas' : 'pendientes';
     pm[campo] += r.horas; a[campo] += r.horas;
     total += r.horas;
     if (campo === 'aprobadas') aprobadas += r.horas; else pendientes += r.horas;
   });
-  return {
+  const salida = {
     totales: { total, aprobadas, pendientes, registros: rs.length },
     porPersonaMes: Object.values(porPersonaMes)
       .sort((x, y) => y.mes.localeCompare(x.mes) || x.area.localeCompare(y.area) || x.miembro.localeCompare(y.miembro)),
     porArea: Object.values(porArea).sort((x, y) => (y.aprobadas + y.pendientes) - (x.aprobadas + x.pendientes)),
   };
+  if (d.detalle) {
+    // Incluye los rechazados, con su estado, para poder filtrarlos en Excel.
+    salida.detalle = base
+      .sort((x, y) => x.fecha.localeCompare(y.fecha) || x.miembro.localeCompare(y.miembro) || x.inicio.localeCompare(y.inicio))
+      .map(r => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol,
+        area: r.area, descripcion: r.descripcion, enlace: r.enlace, estado: r.estado,
+        revisado_por: r.revisado_por, comentario: r.comentario }));
+  }
+  return salida;
 }
 
 /* ------------------------------------------------------------------ */
