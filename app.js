@@ -1012,6 +1012,8 @@
     try { await entrar($('#login-codigo').value.trim()); } catch (e) { aviso(e.message, true); }
     btn.disabled = false;
   });
+  if (!DEMO) $('#login-codigo').setAttribute('inputmode', 'numeric');
+  else $('#login-codigo').placeholder = 'Usa los botones de abajo o un código DEMO-…';
   if (DEMO) {
     $('#banner-demo').hidden = false;
     $('#login-demo').hidden = false;

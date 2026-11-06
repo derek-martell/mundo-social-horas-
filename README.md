@@ -72,7 +72,7 @@ En la hoja **Miembros**, borra las filas de ejemplo y agrega una fila por person
 | `area` | El área a la que pertenece (p. ej. `Redacción`, `Redes sociales`, `Diseño`). Es obligatoria. La lista de áreas sale de esta columna. |
 | `rol` | `miembro`, `coordinador` o `admin`. |
 | `coordina` | Solo para coordinadores: el área que coordinan (o varias, separadas por comas). Se escribe igual que en la columna `area` (no importan las mayúsculas). Normalmente es su propia área. |
-| `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código aleatorio de 10 caracteres para cada persona. |
+| `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código numérico de 8 dígitos, distinto para cada persona (p. ej. `48302917`). |
 | `activo` | `sí` para permitir el acceso. Pon `no` para quitárselo sin borrar sus horas. |
 
 Envía a cada persona su código por un canal privado (WhatsApp, correo). Si un código se filtra, borra esa celda y vuelve a generar uno.
@@ -108,6 +108,10 @@ La URL no es secreta (sin un código no devuelve datos), así que se puede subir
 3. En uno o dos minutos la página queda en `https://derek-martell.github.io/mundo-social-horas-/`. Mientras no configures `config.js`, se verá el modo demostración.
 
 Para probar en tu computadora basta con abrir `index.html` en el navegador, o servir la carpeta con `python3 -m http.server`.
+
+### Al cambiar el código de la página
+
+`index.html` carga los archivos con un número de versión (`app.js?v=…`). Si cambias `app.js`, `demo.js`, `styles.css` o `config.js`, sube ese número en las cuatro líneas de `index.html`: así los navegadores descargan la versión nueva en lugar de usar una guardada.
 
 ## Seguridad y privacidad
 
