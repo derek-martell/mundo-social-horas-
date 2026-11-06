@@ -28,6 +28,14 @@
  * estado (pendiente / en_progreso / hecha), deja una nota y puede ligar sus horas a la tarea
  * con `tarea_id` en Registros. El admin ve todas las tareas.
  *
+ * Planilla: la gente se gestiona desde la app, sin tocar el Sheet. El admin gestiona a todos; un
+ * coordinador, solo a los miembros (rol 'miembro') de las áreas que coordina. Puede ver la planilla
+ * (`planilla`), agregar personas (`agregarPersona`, con código de acceso nuevo que se devuelve una
+ * sola vez), editarlas o desactivarlas (`actualizarPersona`) y regenerar su código (`nuevoCodigo`).
+ * No hay borrado: "quitar" a alguien es desactivarlo, para conservar su historial. El coordinador
+ * no cambia roles ni gestiona a otros coordinadores; el admin no puede desactivarse ni cambiarse
+ * el rol a sí mismo. La planilla nunca devuelve los códigos de acceso.
+ *
  * Todas las peticiones llegan por POST con un cuerpo JSON: { accion, codigo, ... }.
  * El frontend envía el cuerpo como text/plain para evitar el preflight CORS.
  */
@@ -77,6 +85,10 @@ function doPost(e) {
       editarTarea: () => editarTarea_(usuario, datos),
       actualizarTarea: () => actualizarTarea_(usuario, datos),
       eliminarTarea: () => eliminarTarea_(usuario, datos),
+      planilla: () => planilla_(usuario, ctx),
+      agregarPersona: () => agregarPersona_(usuario, datos),
+      actualizarPersona: () => actualizarPersona_(usuario, datos),
+      nuevoCodigo: () => regenerarCodigo_(usuario, datos),
     };
     const fn = acciones[datos.accion];
     if (!fn) throw new ErrorApp('Acción desconocida.');
@@ -486,6 +498,203 @@ function eliminarTarea_(u, d) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Planilla (gestión de personas)                                      */
+/* ------------------------------------------------------------------ */
+
+const ROLES = ['miembro', 'coordinador', 'admin'];
+const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** ¿Puede `u` modificar a la persona `p`? Admin: a todos. Coordinador: miembros de sus áreas. */
+function puedeGestionar_(u, p) {
+  if (esAdmin_(u)) return true;
+  if (u.rol === 'coordinador') return p.rol === 'miembro' && u.coordina.indexOf(normalizar_(p.area)) !== -1;
+  return false;
+}
+
+/** Persona tal como la ve la planilla. NUNCA incluye el código de acceso. */
+function personaPlanilla_(m, u) {
+  return {
+    id: m.id, nombre: m.nombre, email: m.email, area: m.area, rol: m.rol,
+    coordina: m.coordinaNombres, activo: m.activo, tiene_codigo: !!m.codigo,
+    editable: puedeGestionar_(u, m),
+  };
+}
+
+function planilla_(u, ctx) {
+  if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para gestionar la planilla.');
+  const visibles = ctx.miembros.filter(m => esAdmin_(u) || u.coordina.indexOf(normalizar_(m.area)) !== -1);
+  const personas = visibles.map(m => personaPlanilla_(m, u))
+    .sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre));
+  let areas;
+  if (esAdmin_(u)) {
+    areas = ctx.areas.slice();
+    ctx.miembros.forEach(m => { if (m.area && areas.indexOf(m.area) === -1) areas.push(m.area); });
+    areas.sort((a, b) => a.localeCompare(b));
+  } else areas = u.coordinaNombres.slice();
+  return { personas, areas };
+}
+
+function validarNombrePersona_(v) {
+  const nombre = String(v === undefined || v === null ? '' : v).trim();
+  if (nombre.length < 3) throw new ErrorApp('Escribe el nombre (mín. 3 caracteres).');
+  if (nombre.length > 100) throw new ErrorApp('El nombre es muy largo (máx. 100).');
+  return nombre;
+}
+
+/** Email opcional; si viene, con formato válido y sin repetir entre `miembros` (salvo `ignorarId`). */
+function validarEmailPersona_(v, miembros, ignorarId) {
+  const email = String(v === undefined || v === null ? '' : v).trim();
+  if (!email) return '';
+  if (email.length > 150 || !RE_EMAIL.test(email)) throw new ErrorApp('El email no es válido.');
+  if (miembros.some(m => m.id !== ignorarId && normalizar_(m.email) === normalizar_(email))) {
+    throw new ErrorApp('Ya hay otra persona con ese email.');
+  }
+  return email;
+}
+
+/** Área permitida para `u`: el coordinador, solo las suyas (devuelve el nombre como él lo tiene). */
+function validarAreaPersona_(u, v) {
+  const area = String(v === undefined || v === null ? '' : v).trim();
+  if (!area) throw new ErrorApp('Indica el área.');
+  if (area.length > 100) throw new ErrorApp('El área es muy larga (máx. 100).');
+  if (esAdmin_(u)) return area;
+  const i = u.coordina.indexOf(normalizar_(area));
+  if (i === -1) throw new ErrorApp('Solo puedes gestionar personas de las áreas que coordinas.');
+  return u.coordinaNombres[i];
+}
+
+function validarRolPersona_(v) {
+  const rol = normalizar_(v);
+  if (ROLES.indexOf(rol) === -1) throw new ErrorApp('Rol inválido.');
+  return rol;
+}
+
+/** Texto "A, B" (o arreglo) de áreas que coordina -> "A, B" limpio. */
+function textoCoordina_(v) {
+  const lista = Array.isArray(v) ? v : String(v === undefined || v === null ? '' : v).split(',');
+  const limpia = [];
+  lista.map(x => String(x).trim()).filter(Boolean).forEach(x => {
+    if (limpia.some(y => normalizar_(y) === normalizar_(x))) return;
+    limpia.push(x);
+  });
+  const texto = limpia.join(', ');
+  if (texto.length > 300) throw new ErrorApp('La lista de áreas que coordina es muy larga.');
+  return texto;
+}
+
+function aBooleano_(v) {
+  if (v === true || v === false) return v;
+  const t = normalizar_(v);
+  if (/^(si|sí|true|1)$/.test(t)) return true;
+  if (/^(no|false|0)$/.test(t)) return false;
+  throw new ErrorApp('Valor de "activo" inválido.');
+}
+
+function exigirRevisor_(u) {
+  if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para gestionar la planilla.');
+}
+
+/** Agrega una persona con un código de acceso nuevo, que se devuelve esta única vez. */
+function agregarPersona_(u, d) {
+  exigirRevisor_(u);
+  return conBloqueo_(() => {
+    const miembros = leerMiembros_();
+    const nombre = validarNombrePersona_(d.nombre);
+    const email = validarEmailPersona_(d.email, miembros, null);
+    const area = validarAreaPersona_(u, d.area);
+    let rol = 'miembro', coordina = '';
+    if (esAdmin_(u)) {
+      if (d.rol !== undefined && d.rol !== null && d.rol !== '') rol = validarRolPersona_(d.rol);
+      if (rol === 'coordinador') coordina = textoCoordina_(d.coordina);
+    }
+    let mayor = 0;
+    miembros.forEach(m => { const x = /^m(\d+)$/.exec(m.id); if (x) mayor = Math.max(mayor, Number(x[1])); });
+    const id = 'm' + String(mayor + 1).padStart(3, '0');
+    const usados = {};
+    miembros.forEach(m => { usados[m.codigo] = true; });
+    const codigo = nuevoCodigo_(usados);
+    const fila = { id, nombre, email, area, rol, coordina, codigo, activo: 'sí' };
+    hoja_(HOJA_MIEMBROS).appendRow(COLS_MIEMBROS.map(col => seguro_(fila[col])));
+    const persona = leerMiembros_().find(m => m.id === id);
+    return { persona: personaPlanilla_(persona, u), codigo };
+  });
+}
+
+/** Busca la fila de una persona y verifica que `u` pueda gestionarla. */
+function personaGestionable_(u, id) {
+  const tabla = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS);
+  const i = tabla.filas.findIndex(f => String(f.id).trim() === id);
+  const persona = i === -1 ? null : leerMiembros_().find(m => m.id === id);
+  if (!persona) throw new ErrorApp('Persona no encontrada.');
+  if (!puedeGestionar_(u, persona)) {
+    throw new ErrorApp(u.rol === 'coordinador'
+      ? 'Solo puedes gestionar a los miembros de las áreas que coordinas.'
+      : 'No tienes permiso para gestionar la planilla.');
+  }
+  return { hoja: tabla.hoja, fila: tabla.filas[i], i, persona };
+}
+
+/** Cambia solo los campos que vienen. El coordinador no toca rol ni coordina. */
+function actualizarPersona_(u, d) {
+  exigirRevisor_(u);
+  const id = String(d.id || '').trim();
+  return conBloqueo_(() => {
+    const { hoja, fila, i, persona } = personaGestionable_(u, id);
+    const hay = k => d[k] !== undefined;
+    if (u.rol === 'coordinador' && (hay('rol') || hay('coordina'))) {
+      throw new ErrorApp('Solo el administrador puede cambiar el rol o las áreas que coordina.');
+    }
+    const cambios = {};
+    if (hay('nombre')) cambios.nombre = validarNombrePersona_(d.nombre);
+    if (hay('email')) cambios.email = validarEmailPersona_(d.email, leerMiembros_(), id);
+    if (hay('area')) cambios.area = validarAreaPersona_(u, d.area);
+    if (hay('activo')) {
+      const activo = aBooleano_(d.activo);
+      if (!activo && persona.id === u.id) throw new ErrorApp('No puedes desactivarte a ti mismo.');
+      cambios.activo = activo ? 'sí' : 'no';
+    }
+    let rol = persona.rol;
+    if (esAdmin_(u) && hay('rol')) {
+      rol = validarRolPersona_(d.rol);
+      if (persona.id === u.id && rol !== persona.rol) throw new ErrorApp('No puedes cambiar tu propio rol.');
+      cambios.rol = rol;
+    }
+    if (rol !== 'coordinador') cambios.coordina = '';
+    else if (esAdmin_(u) && hay('coordina')) cambios.coordina = textoCoordina_(d.coordina);
+    const nueva = Object.assign({}, fila, cambios);
+    hoja.getRange(i + 2, 1, 1, COLS_MIEMBROS.length)
+      .setValues([COLS_MIEMBROS.map(col => seguro_(nueva[col]))]);
+    return { persona: personaPlanilla_(leerMiembros_().find(m => m.id === id), u) };
+  });
+}
+
+/** Genera un código nuevo (el anterior deja de servir) y lo devuelve esta única vez. */
+function regenerarCodigo_(u, d) {
+  exigirRevisor_(u);
+  const id = String(d.id || '').trim();
+  return conBloqueo_(() => {
+    const { hoja } = personaGestionable_(u, id);
+    const miembros = leerMiembros_();
+    const usados = {};
+    miembros.forEach(m => { usados[m.codigo] = true; });
+    const codigo = nuevoCodigo_(usados);
+    const i = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS).filas.findIndex(f => String(f.id).trim() === id);
+    hoja.getRange(i + 2, COLS_MIEMBROS.indexOf('codigo') + 1).setNumberFormat('@').setValue(codigo);
+    return { codigo };
+  });
+}
+
+/** Código de 8 dígitos, sin 0 inicial (para que Sheets no lo recorte), que no esté en `usados`. */
+function nuevoCodigo_(usados) {
+  let c;
+  do {
+    c = String(1 + Math.floor(Math.random() * 9));
+    for (let k = 0; k < 7; k++) c += Math.floor(Math.random() * 10);
+  } while (usados[c]);
+  return c;
+}
+
+/* ------------------------------------------------------------------ */
 /* Lectura del Sheet                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -509,6 +718,7 @@ function leerMiembros_() {
     .map(m => ({
       id: String(m.id).trim(),
       nombre: String(m.nombre).trim(),
+      email: String(m.email || '').trim(),
       area: String(m.area).trim(),
       rol: ['admin', 'coordinador'].indexOf(normalizar_(m.rol)) !== -1 ? normalizar_(m.rol) : 'miembro',
       coordina: String(m.coordina || '').split(',').map(normalizar_).filter(Boolean),
@@ -660,11 +870,7 @@ function generarCodigos() {
   let n = 0;
   filas.forEach((m, i) => {
     if (String(m.id).trim() && !String(m.codigo).trim()) {
-      let c;
-      do {
-        c = String(1 + Math.floor(Math.random() * 9));
-        for (let k = 0; k < 7; k++) c += Math.floor(Math.random() * 10);
-      } while (usados[c]);
+      const c = nuevoCodigo_(usados);
       usados[c] = true;
       hoja.getRange(i + 2, col).setNumberFormat('@').setValue(c);
       n++;
