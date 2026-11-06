@@ -51,6 +51,12 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 - **Asignadas por mí:** el avance de cada persona (cuántas hechas, horas dedicadas, vencidas). Quien asignó la tarea puede editarla, cancelarla, reabrirla o eliminarla. El admin además ve **Todo el grupo**.
 - En el Excel de Totales, la hoja *Detalle* incluye la tarea de cada registro.
 
+### Planilla (directores y admin)
+
+- Cada director de área (rol `coordinador`) ve en **Planilla** a las personas de las áreas que dirige. Puede **agregar** a quien entra, **editar** su nombre, correo o área, **desactivar** a quien se va (pierde el acceso, pero su historial de horas y tareas se conserva) y **reactivarlo** si vuelve.
+- Al agregar a alguien, o con **Nuevo código**, la app muestra su código de acceso de 8 dígitos **una sola vez**, para que el director se lo envíe por privado.
+- El director no puede cambiar roles ni tocar a otros directores. El admin gestiona a todos: crea directores, define qué áreas dirige cada uno y cambia roles.
+
 ## Puesta en marcha
 
 ### 1. Crear el Google Sheet

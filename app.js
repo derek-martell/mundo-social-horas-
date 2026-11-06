@@ -154,6 +154,7 @@
 
   function salir() {
     try { sessionStorage.removeItem(CLAVE_SESION); } catch (e) { /* nada */ }
+    $('#pla-area').innerHTML = ''; $('#pla-buscar').value = ''; $('#pla-inactivos').checked = false;
     S.codigo = ''; S.usuario = null; S.viendo = null; S.registros = []; S.equipo = []; S.misTareas = []; S.vistaTareas = 'mias';
     cerrarPopover();
     $('#menu-usuario').hidden = true;
@@ -200,6 +201,10 @@
       ? 'Asignas tareas a los coordinadores (y a quien esté en un área sin coordinador). En "Todo el grupo" ves todas.'
       : u.rol === 'coordinador' ? 'Asignas tareas a los miembros de tu área. También ves las que te asignan a ti.'
       : 'Las tareas y metas que te asigna tu coordinador.';
+    $('#pla-alcance').textContent = u.rol === 'admin'
+      ? 'Todas las personas de Mundo Social. Puedes agregar, editar, cambiar roles y desactivar.'
+      : 'Las personas de ' + (u.coordina.join(' y ') || 'tu área') + '. Agrega a quien entra y desactiva a quien se va; su historial de horas se conserva.';
+    $('#dp-solo-admin').hidden = u.rol !== 'admin';
     cargarMisTareas();
     irAPagina(paginaDeHash());
   }
@@ -210,11 +215,11 @@
 
   function paginaDeHash() {
     const h = location.hash.slice(1);
-    return ['calendario', 'tareas', 'por-aprobar', 'totales'].includes(h) ? h : 'calendario';
+    return ['calendario', 'tareas', 'por-aprobar', 'planilla', 'totales'].includes(h) ? h : 'calendario';
   }
 
   function irAPagina(p) {
-    if (p === 'por-aprobar' && !esRevisor()) p = 'calendario';
+    if ((p === 'por-aprobar' || p === 'planilla') && !esRevisor()) p = 'calendario';
     S.pagina = p;
     cerrarPopover();
     $$('.pagina').forEach((el) => { el.hidden = el.id !== 'pagina-' + p; });
@@ -227,6 +232,7 @@
     if (p === 'por-aprobar') cargarRevision();
     if (p === 'totales') cargarTotales();
     if (p === 'tareas') cargarTareas();
+    if (p === 'planilla') cargarPlanilla();
   }
 
   /* =================================================================
@@ -1154,6 +1160,145 @@
   }
 
   /* =================================================================
+   * Planilla (directores y admin)
+   * ================================================================= */
+
+  let planilla = { personas: [], areas: [] };
+
+  async function cargarPlanilla() {
+    const tb = $('#pla-tabla');
+    tb.innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
+    try {
+      planilla = await api('planilla');
+      const sel = $('#pla-area');
+      const previo = sel.value;
+      sel.innerHTML = (planilla.areas.length > 1 ? '<option value="">Todas las áreas</option>' : '') +
+        planilla.areas.map((a) => `<option>${esc(a)}</option>`).join('');
+      if (previo && planilla.areas.includes(previo)) sel.value = previo;
+      sel.hidden = planilla.areas.length < 2;
+      renderPlanilla();
+    } catch (e) {
+      tb.innerHTML = '';
+      aviso(e.message, true);
+    }
+  }
+
+  function renderPlanilla() {
+    const q = $('#pla-buscar').value.trim().toLowerCase();
+    const area = $('#pla-area').value;
+    const verInactivos = $('#pla-inactivos').checked;
+    const enArea = planilla.personas.filter((p) => !area || p.area === area);
+    const lista = enArea.filter((p) => (verInactivos || p.activo) &&
+      (!q || p.nombre.toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q)));
+    const activos = enArea.filter((p) => p.activo).length;
+    $('#pla-cifras').innerHTML = [
+      [activos, 'personas activas'], [enArea.length - activos, 'inactivas'],
+      [enArea.filter((p) => p.activo && p.rol === 'coordinador').length, 'directores'],
+    ].map(([v, t]) => `<div class="cifra"><b>${v}</b><span>${t}</span></div>`).join('');
+    $('#pla-tabla').innerHTML = lista.length ? lista.map((p) => `
+      <tr class="${p.activo ? '' : 'inactiva'}">
+        <td>${esc(p.nombre)}${p.id === S.usuario.id ? ' <span class="sub">(tú)</span>' : ''}</td>
+        <td>${p.email ? esc(p.email) : '<span class="sutil">—</span>'}</td>
+        <td><span class="punto" style="--c:${colorArea(p.area)}"></span> ${esc(p.area)}</td>
+        <td><span class="rol ${esc(p.rol)}">${p.rol === 'coordinador' ? 'Director' : ROLES[p.rol] || esc(p.rol)}</span>${p.rol === 'coordinador' && p.coordina.length ? `<span class="sub">${esc(p.coordina.join(', '))}</span>` : ''}</td>
+        <td><span class="estado ${p.activo ? 'activo' : 'inactivo'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
+        <td><div class="celda-acciones">${p.editable ? `
+          <button class="btn texto chico" type="button" data-pla="editar" data-id="${esc(p.id)}">Editar</button>
+          ${p.id !== S.usuario.id ? `<button class="btn ${p.activo ? 'peligro' : 'texto'} chico" type="button" data-pla="${p.activo ? 'desactivar' : 'reactivar'}" data-id="${esc(p.id)}">${p.activo ? 'Desactivar' : 'Reactivar'}</button>` : ''}
+          ${p.activo ? `<button class="btn texto chico" type="button" data-pla="codigo" data-id="${esc(p.id)}">Nuevo código</button>` : ''}` : '<span class="sutil">Lo gestiona el admin</span>'}
+        </div></td>
+      </tr>`).join('') : `<tr><td colspan="6" class="vacio">${q ? 'Nadie coincide con la búsqueda.' : 'No hay personas para mostrar.'}</td></tr>`;
+  }
+
+  function mostrarCodigo(nombre, codigo) {
+    $('#dc-texto').textContent = `Código de acceso de ${nombre}:`;
+    $('#dc-codigo').textContent = codigo;
+    $('#dialogo-codigo').hidden = false;
+    $('#dc-copiar').onclick = () => {
+      if (navigator.clipboard) navigator.clipboard.writeText(codigo).then(() => aviso('Código copiado.')).catch(() => {});
+    };
+    $('#dc-cerrar').onclick = () => { $('#dialogo-codigo').hidden = true; $('#dc-codigo').textContent = ''; };
+    setTimeout(() => $('#dc-cerrar').focus(), 20);
+  }
+
+  function abrirDialogoPersona(p) {
+    const esAdmin = S.usuario.rol === 'admin';
+    $('#dp-titulo').textContent = p ? 'Editar persona' : 'Agregar persona';
+    $('#dp-ok').textContent = p ? 'Guardar' : 'Agregar';
+    $('#dp-nombre').value = p ? p.nombre : '';
+    $('#dp-email').value = p ? p.email : '';
+    $('#dp-area').innerHTML = planilla.areas.map((a) => `<option>${esc(a)}</option>`).join('');
+    const areaSel = $('#pla-area').value;
+    $('#dp-area').value = p ? p.area : (areaSel || planilla.areas[0] || '');
+    if (esAdmin) {
+      $('#dp-rol').value = p ? p.rol : 'miembro';
+      $('#dp-rol').disabled = !!p && p.id === S.usuario.id;
+      $('#dp-coordina').innerHTML = planilla.areas.map((a) => `<label><input type="checkbox" value="${esc(a)}"${p && p.coordina.includes(a) ? ' checked' : ''}> ${esc(a)}</label>`).join('');
+      const sync = () => { $('#dp-coordina-caja').hidden = $('#dp-rol').value !== 'coordinador'; };
+      $('#dp-rol').onchange = sync; sync();
+    }
+    $('#dialogo-persona').hidden = false;
+    setTimeout(() => $('#dp-nombre').focus(), 20);
+    $('#dp-cancelar').onclick = () => { $('#dialogo-persona').hidden = true; };
+    $('#dp-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = { nombre: $('#dp-nombre').value.trim(), email: $('#dp-email').value.trim(), area: $('#dp-area').value };
+      if (esAdmin) {
+        d.rol = $('#dp-rol').value;
+        d.coordina = d.rol === 'coordinador' ? $$('#dp-coordina input:checked').map((c) => c.value).join(', ') : '';
+        if (d.rol === 'coordinador' && !d.coordina) { aviso('Marca al menos un área que dirija.', true); return; }
+        if (p && p.id === S.usuario.id) delete d.rol;
+      }
+      if (d.nombre.length < 3) { aviso('Escribe el nombre completo.', true); $('#dp-nombre').focus(); return; }
+      const btn = $('#dp-ok');
+      btn.disabled = true;
+      try {
+        if (p) {
+          await api('actualizarPersona', Object.assign({ id: p.id }, d));
+          aviso('Datos actualizados.');
+        } else {
+          const j = await api('agregarPersona', d);
+          if ($('#pla-area').value && $('#pla-area').value !== j.persona.area) $('#pla-area').value = j.persona.area;
+          mostrarCodigo(j.persona.nombre, j.codigo);
+        }
+        $('#dialogo-persona').hidden = true;
+        cargarPlanilla();
+      } catch (e) {
+        aviso(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+
+  async function manejarClicPlanilla(ev) {
+    const b = ev.target.closest('button[data-pla]');
+    if (!b) return;
+    const p = planilla.personas.find((x) => x.id === b.dataset.id);
+    if (!p) return;
+    const accion = b.dataset.pla;
+    if (accion === 'editar') { abrirDialogoPersona(p); return; }
+    if ((accion === 'desactivar' || accion === 'codigo') && !b.dataset.confirmar) {
+      b.dataset.confirmar = '1';
+      b.textContent = accion === 'desactivar' ? '¿Desactivar? Confirmar' : '¿Reemplazar código? Confirmar';
+      return;
+    }
+    try {
+      if (accion === 'codigo') {
+        const j = await api('nuevoCodigo', { id: p.id });
+        mostrarCodigo(p.nombre, j.codigo);
+      } else {
+        await api('actualizarPersona', { id: p.id, activo: accion === 'reactivar' });
+        aviso(accion === 'reactivar' ? `${p.nombre} vuelve a tener acceso.` : `${p.nombre} ya no tiene acceso. Su historial se conserva.`);
+        cargarPlanilla();
+        if (esRevisor()) api('miembrosEquipo').then((j) => { S.equipo = j.miembros; }).catch(() => {});
+      }
+    } catch (e) {
+      aviso(e.message, true);
+    }
+  }
+
+  /* =================================================================
    * Totales
    * ================================================================= */
 
@@ -1369,6 +1514,11 @@
     if (acciones[k]) { ev.preventDefault(); acciones[k](); }
   });
 
+  $('#pla-tabla').addEventListener('click', manejarClicPlanilla);
+  $('#pla-agregar').addEventListener('click', () => abrirDialogoPersona(null));
+  $('#pla-buscar').addEventListener('input', renderPlanilla);
+  $('#pla-area').addEventListener('change', renderPlanilla);
+  $('#pla-inactivos').addEventListener('change', renderPlanilla);
   $('#tar-lista').addEventListener('click', manejarClicTarea);
   $('#metas-semana').addEventListener('click', manejarClicTarea);
   $('#tar-vistas').addEventListener('click', (ev) => {

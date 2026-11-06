@@ -8,15 +8,16 @@
   'use strict';
 
   const MIEMBROS = [
-    { id: 'm01', nombre: 'Lucía Ramos', area: 'Dirección', rol: 'admin', coordina: [] },
-    { id: 'm02', nombre: 'Diego Salazar', area: 'Redacción', rol: 'coordinador', coordina: ['Redacción'] },
-    { id: 'm03', nombre: 'Valeria Quispe', area: 'Redacción', rol: 'miembro', coordina: [] },
-    { id: 'm04', nombre: 'Andrés Huamán', area: 'Redacción', rol: 'miembro', coordina: [] },
-    { id: 'm05', nombre: 'Camila Torres', area: 'Redes sociales', rol: 'coordinador', coordina: ['Redes sociales'] },
-    { id: 'm06', nombre: 'Jorge Mendoza', area: 'Redes sociales', rol: 'miembro', coordina: [] },
-    { id: 'm07', nombre: 'Rosa Paredes', area: 'Diseño', rol: 'coordinador', coordina: ['Diseño'] },
-    { id: 'm08', nombre: 'Luis Castro', area: 'Diseño', rol: 'miembro', coordina: [] },
-    { id: 'm09', nombre: 'Sofía Vargas', area: 'Investigación', rol: 'miembro', coordina: [] }, // área sin coordinador
+    { id: 'm01', nombre: 'Lucía Ramos', email: 'lucia@ejemplo.org', activo: true, area: 'Dirección', rol: 'admin', coordina: [] },
+    { id: 'm02', nombre: 'Diego Salazar', email: 'diego@ejemplo.org', activo: true, area: 'Redacción', rol: 'coordinador', coordina: ['Redacción'] },
+    { id: 'm03', nombre: 'Valeria Quispe', email: 'valeria@ejemplo.org', activo: true, area: 'Redacción', rol: 'miembro', coordina: [] },
+    { id: 'm04', nombre: 'Andrés Huamán', email: 'andres@ejemplo.org', activo: true, area: 'Redacción', rol: 'miembro', coordina: [] },
+    { id: 'm05', nombre: 'Camila Torres', email: 'camila@ejemplo.org', activo: true, area: 'Redes sociales', rol: 'coordinador', coordina: ['Redes sociales'] },
+    { id: 'm06', nombre: 'Jorge Mendoza', email: 'jorge@ejemplo.org', activo: true, area: 'Redes sociales', rol: 'miembro', coordina: [] },
+    { id: 'm07', nombre: 'Rosa Paredes', email: 'rosa@ejemplo.org', activo: true, area: 'Diseño', rol: 'coordinador', coordina: ['Diseño'] },
+    { id: 'm08', nombre: 'Luis Castro', email: 'luis@ejemplo.org', activo: true, area: 'Diseño', rol: 'miembro', coordina: [] },
+    { id: 'm10', nombre: 'Pedro Ríos', email: 'pedro@ejemplo.org', activo: false, area: 'Redacción', rol: 'miembro', coordina: [] }, // ya no participa
+    { id: 'm09', nombre: 'Sofía Vargas', email: 'sofia@ejemplo.org', activo: true, area: 'Investigación', rol: 'miembro', coordina: [] }, // área sin coordinador
   ];
   const CODIGOS = { 'DEMO-ADMIN': 'm01', 'DEMO-COORD': 'm02', 'DEMO-MIEMBRO': 'm03' };
   const AREAS = Array.from(new Set(MIEMBROS.map((m) => m.area))).sort((a, b) => a.localeCompare(b));
@@ -128,6 +129,37 @@
   })();
 
   class ErrorDemo extends Error {}
+
+  // ---------- Planilla ----------
+  function puedeGestionar(u, m) {
+    if (u.rol === 'admin') return true;
+    return u.rol === 'coordinador' && m.rol === 'miembro' && u.coordina.map(norm).includes(norm(m.area));
+  }
+  const persona = (u, m) => ({ id: m.id, nombre: m.nombre, email: m.email || '', area: m.area, rol: m.rol,
+    coordina: m.coordina.slice(), activo: m.activo !== false, tiene_codigo: true, editable: puedeGestionar(u, m) });
+  function nuevoCodigo() {
+    let c;
+    do { c = String(1 + Math.floor(Math.random() * 9)); for (let k = 0; k < 7; k++) c += Math.floor(Math.random() * 10); } while (CODIGOS[c]);
+    return c;
+  }
+  function validarPersona(u, d, actual) {
+    const nombre = String(d.nombre || '').trim();
+    if (nombre.length < 3 || nombre.length > 100) throw new ErrorDemo('El nombre debe tener entre 3 y 100 caracteres.');
+    const email = String(d.email || '').trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ErrorDemo('El correo no es válido.');
+    if (email && MIEMBROS.some((m) => m !== actual && (m.email || '').toLowerCase() === email)) throw new ErrorDemo('Ya hay otra persona con ese correo.');
+    let area = String(d.area || '').trim();
+    if (!area) throw new ErrorDemo('Elige el área.');
+    if (u.rol !== 'admin') {
+      const propia = u.coordina.find((a) => norm(a) === norm(area));
+      if (!propia) throw new ErrorDemo('Solo puedes gestionar personas de tu área.');
+      area = propia;
+      return { nombre, email, area };
+    }
+    const rol = ['miembro', 'coordinador', 'admin'].includes(d.rol) ? d.rol : 'miembro';
+    const coordina = rol === 'coordinador' ? String(d.coordina || '').split(',').map((x) => x.trim()).filter(Boolean) : [];
+    return { nombre, email, area, rol, coordina };
+  }
 
   const ESTADOS_TAREA = ['pendiente', 'en_progreso', 'hecha', 'cancelada'];
   const horasDe = (id) => registros.filter((r) => r.tarea_id === id && r.estado !== 'rechazado').reduce((a, r) => a + r.horas, 0);
@@ -248,9 +280,44 @@
       tareas.splice(i, 1);
       return { eliminada: d.id };
     },
+    planilla(u) {
+      if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver la planilla.');
+      const personas = MIEMBROS.filter((m) => u.rol === 'admin' || u.coordina.map(norm).includes(norm(m.area)))
+        .map((m) => persona(u, m)).sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre));
+      const areas = u.rol === 'admin' ? Array.from(new Set(MIEMBROS.map((m) => m.area))).sort((a, b) => a.localeCompare(b)) : u.coordina.slice();
+      return { personas, areas };
+    },
+    agregarPersona(u, d) {
+      if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para gestionar la planilla.');
+      const c = validarPersona(u, d, null);
+      const n = Math.max(...MIEMBROS.map((m) => Number(m.id.slice(1)))) + 1;
+      const m = Object.assign({ id: 'm' + String(n).padStart(2, '0'), activo: true }, c);
+      if (u.rol !== 'admin') { m.rol = 'miembro'; m.coordina = []; }
+      MIEMBROS.push(m);
+      const codigo = nuevoCodigo();
+      CODIGOS[codigo] = m.id;
+      return { persona: persona(u, m), codigo };
+    },
+    actualizarPersona(u, d) {
+      const m = MIEMBROS.find((x) => x.id === d.id);
+      if (!m || !puedeGestionar(u, m)) throw new ErrorDemo('No puedes modificar a esta persona.');
+      if (u.rol !== 'admin' && (d.rol !== undefined || d.coordina !== undefined)) throw new ErrorDemo('Solo el admin puede cambiar roles.');
+      if (m.id === u.id && (d.activo === false || (d.rol && d.rol !== u.rol))) throw new ErrorDemo('No puedes desactivarte ni cambiar tu propio rol.');
+      Object.assign(m, validarPersona(u, Object.assign({ nombre: m.nombre, email: m.email, area: m.area, rol: m.rol, coordina: m.coordina.join(', ') }, d), m));
+      if (d.activo !== undefined) m.activo = !!d.activo;
+      return { persona: persona(u, m) };
+    },
+    nuevoCodigo(u, d) {
+      const m = MIEMBROS.find((x) => x.id === d.id);
+      if (!m || !puedeGestionar(u, m)) throw new ErrorDemo('No puedes modificar a esta persona.');
+      Object.keys(CODIGOS).forEach((k) => { if (CODIGOS[k] === m.id && !/^DEMO-/.test(k)) delete CODIGOS[k]; });
+      const codigo = nuevoCodigo();
+      CODIGOS[codigo] = m.id;
+      return { codigo };
+    },
     miembrosEquipo(u) {
       if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver otros calendarios.');
-      return { miembros: MIEMBROS.filter((m) => puedeRevisar(u, m.id, m.area))
+      return { miembros: MIEMBROS.filter((m) => m.activo !== false && puedeRevisar(u, m.id, m.area))
         .map((m) => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol }))
         .sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre)) };
     },
@@ -304,7 +371,7 @@
       await new Promise((r) => setTimeout(r, 120));
       try {
         const u = MIEMBROS.find((m) => m.id === CODIGOS[String(datos.codigo || '').toUpperCase()]);
-        if (!u) throw new ErrorDemo('Código de acceso inválido.');
+        if (!u || u.activo === false) throw new ErrorDemo('Código de acceso inválido.');
         const fn = acciones[accion];
         if (!fn) throw new ErrorDemo('Acción desconocida.');
         return Object.assign({ ok: true }, fn(u, datos));
