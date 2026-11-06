@@ -1,9 +1,14 @@
 # Mundo Social · Registro de horas
 
-Página para que los miembros de Mundo Social registren sus horas de trabajo y para que los
-coordinadores las aprueben y vean los totales.
+Calendario de trabajo para que los miembros de Mundo Social registren a qué horas trabajaron y en qué,
+y para que los coordinadores lo aprueben y vean los totales. Funciona como una agenda: arrastras sobre
+la semana para marcar el horario, escribes en qué trabajaste y listo.
 
-- **Frontend:** HTML/CSS/JS estático, sin build (`index.html`, `styles.css`, `app.js`, `config.js`). Se publica en GitHub Pages.
+**Demostración:** mientras `config.js` no tenga la URL del Web App, la página abre en *modo demostración*,
+con datos de ejemplo y botones para entrar como miembro, coordinador o admin. Nada se guarda en ese modo.
+Cuando la URL ya esté configurada, puedes volver a ver la demo agregando `?demo=1` a la dirección.
+
+- **Frontend:** HTML/CSS/JS estático, sin build (`index.html`, `styles.css`, `app.js`, `config.js`, `demo.js`). Se publica en GitHub Pages.
 - **Backend y datos:** un Google Sheet privado con un Google Apps Script publicado como Web App (`apps-script/Code.gs`).
 - **Las horas nunca se guardan en este repositorio.** Viven solo en el Sheet, y el Web App solo devuelve datos a quien envía un código de acceso válido.
 
@@ -15,9 +20,22 @@ coordinadores las aprueben y vean los totales.
 | `coordinador` | Lo mismo, más **aprobar o rechazar las horas de los equipos que coordina** y ver los totales de esos equipos. No puede aprobar sus propias horas. |
 | `admin` | Ve y aprueba las horas de todo el grupo (incluidas las de los coordinadores) y ve todos los totales. |
 
-Cada registro lleva: miembro, fecha, horas (en múltiplos de 15 minutos), área o proyecto, descripción, enlace opcional y estado (`pendiente`, `aprobado` o `rechazado`). Al rechazar, el revisor indica un motivo, que el miembro ve en "Mis horas".
+Cada registro lleva: miembro, fecha, **hora de inicio y de fin** (en tramos de 15 minutos; las horas se calculan solas), área o proyecto, descripción, enlace opcional y estado (`pendiente`, `aprobado` o `rechazado`). No se permiten dos registros propios que se crucen en horario.
 
-La pestaña **Totales** muestra las horas por persona y mes, por área o proyecto y por equipo. Se puede filtrar por rango de meses o ver solo las horas aprobadas, y exportar a CSV.
+### El calendario
+
+- **Vistas Día, Semana y Mes**, con mini calendario, total de horas por día y línea de la hora actual.
+- **Registrar:** arrastra sobre la cuadrícula (o haz clic) y completa la ventanita: en qué trabajaste, horario, área y enlace. También con el botón *Registrar horas* o la tecla `C`.
+- **Corregir:** arrastra un bloque para cambiarlo de hora o de día, estira su borde inferior para cambiar la duración, o haz clic para editarlo o eliminarlo. Las horas aprobadas ya no se pueden cambiar.
+- **Colores:** cada área tiene su color. Un bloque sólido está aprobado, uno claro con borde está pendiente y uno rayado y tachado fue rechazado (al hacer clic se ve el motivo; si lo corriges, vuelve a pendiente).
+- **Filtros** por estado y por área en el panel lateral, con el total del periodo visible.
+- **Atajos:** `C` registrar, `T` hoy, `D`/`S`/`M` día, semana o mes, `J`/`K` avanzar o retroceder, `Esc` cerrar.
+
+### Para coordinadores y admin
+
+- **Calendario de…:** en el panel lateral eliges a un miembro de tu equipo y ves su semana tal cual la registró. Al hacer clic en un bloque puedes aprobarlo o rechazarlo, o aprobar de una vez todo lo pendiente del periodo.
+- **Por aprobar:** lista de registros filtrable por estado, miembro y mes, con aprobación en lote. Al rechazar se pide el motivo.
+- **Totales:** horas por persona y mes, por área o proyecto y por equipo, con filtro por rango de meses o solo aprobadas, y exportación a CSV.
 
 ## Puesta en marcha
 
@@ -34,7 +52,7 @@ La pestaña **Totales** muestra las horas por persona y mes, por área o proyect
 4. En la barra superior, elige la función **`configurar`** y pulsa **Ejecutar**. La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
    Esto crea tres hojas:
    - **Miembros:** `id | nombre | email | equipo | rol | coordina | codigo | activo`, con tres filas de ejemplo.
-   - **Registros:** aquí se guardan las horas. No hace falta tocarla.
+   - **Registros:** aquí se guardan las horas (`… | inicio | fin` al final). No hace falta tocarla.
    - **Areas:** la lista de áreas o proyectos que aparece en el formulario.
 5. Recarga el Sheet. Aparece el menú **Registro de horas** con las opciones *Configurar hojas* y *Generar códigos faltantes*.
 
@@ -83,10 +101,9 @@ La URL no es secreta (sin un código no devuelve datos), así que se puede subir
 
 ### 6. Publicar en GitHub Pages
 
-1. En GitHub: **Settings → Pages → Build and deployment → Source: Deploy from a branch**, rama `main`, carpeta `/ (root)`.
-2. La página quedará en `https://derek-martell.github.io/mundo-social-horas-/`.
-
-> GitHub Pages en un repo **privado** requiere un plan de pago (GitHub Pro o Team). Con una cuenta gratuita hay dos opciones: hacer público el repo (no contiene datos de horas ni códigos, solo el código de la página) o copiar estos archivos a una carpeta del sitio principal (`derek-martell/mundo-social`), p. ej. `/horas/`.
+1. Haz público el repositorio: **Settings → General → Danger Zone → Change visibility → Public**. Es seguro: el repo solo tiene el código de la página, sin horas, nombres ni códigos de acceso.
+2. **Settings → Pages → Build and deployment → Source: Deploy from a branch**, rama `main`, carpeta `/ (root)`, y **Save**.
+3. En uno o dos minutos la página queda en `https://derek-martell.github.io/mundo-social-horas-/`. Mientras no configures `config.js`, se verá el modo demostración.
 
 Para probar en tu computadora basta con abrir `index.html` en el navegador, o servir la carpeta con `python3 -m http.server`.
 
@@ -102,9 +119,10 @@ Para probar en tu computadora basta con abrir `index.html` en el navegador, o se
 ## Estructura
 
 ```
-index.html              Página única: ingreso, registro, mis horas, por aprobar, totales
+index.html              Página única: ingreso, calendario, por aprobar, totales
 styles.css              Estilos (con modo oscuro automático)
-app.js                  Lógica del frontend
+app.js                  Lógica del calendario y de las demás vistas
+demo.js                 Backend simulado con datos de ejemplo (modo demostración)
 config.js               URL del Web App
 apps-script/Code.gs     Backend (pegar en el editor de Apps Script)
 apps-script/appsscript.json  Manifiesto opcional (zona horaria y runtime)
@@ -112,6 +130,6 @@ apps-script/appsscript.json  Manifiesto opcional (zona horaria y runtime)
 
 ## Ideas para siguientes versiones
 
-- Editar un registro pendiente (hoy se elimina y se vuelve a crear).
+- Registros que se repiten (p. ej. la reunión semanal) con un solo clic.
 - Aviso por correo al coordinador cuando hay horas pendientes (con un activador semanal de Apps Script).
 - Guardar los códigos como hash en el Sheet en lugar de en texto plano.

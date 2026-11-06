@@ -5,7 +5,8 @@
  * Hojas que usa (las crea la función `configurar`):
  *   Miembros  : id | nombre | email | equipo | rol | coordina | codigo | activo
  *   Registros : id | creado | miembro_id | miembro | equipo | fecha | horas | area |
- *               descripcion | enlace | estado | revisado_por | revisado_en | comentario
+ *               descripcion | enlace | estado | revisado_por | revisado_en | comentario |
+ *               inicio | fin
  *   Areas     : area
  *
  * Roles:
@@ -24,7 +25,7 @@ const HOJA_AREAS = 'Areas';
 
 const COLS_MIEMBROS = ['id', 'nombre', 'email', 'equipo', 'rol', 'coordina', 'codigo', 'activo'];
 const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'equipo', 'fecha', 'horas', 'area',
-  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario'];
+  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario', 'inicio', 'fin'];
 
 const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
 const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el Web App
@@ -45,9 +46,11 @@ function doPost(e) {
     const acciones = {
       login: () => ({ usuario: perfilPublico_(usuario), areas: listarAreas_() }),
       registrar: () => registrar_(usuario, datos),
+      editar: () => editar_(usuario, datos),
       misHoras: () => ({ registros: registrosDe_(usuario, datos) }),
       eliminar: () => eliminar_(usuario, datos.id),
       porRevisar: () => ({ registros: registrosParaRevisar_(usuario, datos) }),
+      miembrosEquipo: () => ({ miembros: miembrosEquipo_(usuario) }),
       revisar: () => revisar_(usuario, datos),
       resumen: () => resumen_(usuario, datos),
     };
@@ -107,14 +110,21 @@ function puedeRevisar_(u, miembroId, equipo) {
 /* Acciones                                                            */
 /* ------------------------------------------------------------------ */
 
-function registrar_(u, d) {
+/** Valida y normaliza los campos de un registro. Devuelve los campos limpios. */
+function validarCampos_(d) {
   const fecha = String(d.fecha || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ErrorApp('Fecha inválida.');
   const hoy = Utilities.formatDate(new Date(), ZONA, 'yyyy-MM-dd');
   if (fecha > hoy) throw new ErrorApp('No puedes registrar horas en una fecha futura.');
 
-  const horas = Math.round(Number(d.horas) * 4) / 4; // múltiplos de 15 minutos
-  if (!(horas > 0 && horas <= 24)) throw new ErrorApp('Las horas deben estar entre 0.25 y 24.');
+  const inicio = String(d.inicio || ''), fin = String(d.fin || '');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(inicio) || !/^([01]\d|2[0-4]):[0-5]\d$/.test(fin)) {
+    throw new ErrorApp('Indica la hora de inicio y de fin.');
+  }
+  const minutos = aMinutos_(fin) - aMinutos_(inicio);
+  if (minutos < 15) throw new ErrorApp('La hora de fin debe ser al menos 15 minutos después del inicio.');
+  if (aMinutos_(fin) > 24 * 60) throw new ErrorApp('Hora de fin inválida.');
+  const horas = Math.round(minutos / 15) / 4; // múltiplos de 15 minutos
 
   const area = String(d.area || '').trim();
   if (listarAreas_().indexOf(area) === -1) throw new ErrorApp('Área o proyecto inválido.');
@@ -127,21 +137,56 @@ function registrar_(u, d) {
   if (enlace && !/^https?:\/\/\S+$/i.test(enlace)) throw new ErrorApp('El enlace debe empezar con http:// o https://');
   if (enlace.length > 500) throw new ErrorApp('El enlace es muy largo.');
 
-  const id = Utilities.getUuid();
-  const fila = {
-    id, creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre, equipo: u.equipo,
-    fecha, horas, area, descripcion, enlace, estado: 'pendiente',
-    revisado_por: '', revisado_en: '', comentario: '',
-  };
-  conBloqueo_(() => {
-    hoja_(HOJA_REGISTROS).appendRow(COLS_REGISTROS.map(c => seguro_(fila[c])));
+  return { fecha, inicio, fin, horas, area, descripcion, enlace };
+}
+
+/** Lanza un error si el tramo se cruza con otro registro (no rechazado) del mismo miembro. */
+function verificarCruce_(filas, miembroId, c, ignorarId) {
+  const a = aMinutos_(c.inicio), b = aMinutos_(c.fin);
+  const choque = filas.find(r => r.miembro_id === miembroId && r.id !== ignorarId &&
+    r.fecha === c.fecha && r.estado !== 'rechazado' && r.inicio && r.fin &&
+    aMinutos_(r.inicio) < b && a < aMinutos_(r.fin));
+  if (choque) {
+    throw new ErrorApp('Se cruza con otro registro tuyo de ' + choque.inicio + ' a ' + choque.fin + '.');
+  }
+}
+
+function registrar_(u, d) {
+  const c = validarCampos_(d);
+  return conBloqueo_(() => {
+    verificarCruce_(leerRegistros_(), u.id, c, null);
+    const fila = Object.assign({
+      id: Utilities.getUuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
+      equipo: u.equipo, estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '',
+    }, c);
+    hoja_(HOJA_REGISTROS).appendRow(COLS_REGISTROS.map(col => seguro_(fila[col])));
+    return { registro: fila };
   });
-  return { registro: fila };
+}
+
+/** Edita un registro propio no aprobado. Vuelve a quedar pendiente de aprobación. */
+function editar_(u, d) {
+  const c = validarCampos_(d);
+  return conBloqueo_(() => {
+    const { hoja, filas } = filasRegistros_();
+    const i = filas.findIndex(r => r.id === String(d.id || ''));
+    if (i === -1) throw new ErrorApp('Registro no encontrado.');
+    const r = filas[i];
+    if (r.miembro_id !== u.id) throw new ErrorApp('Solo puedes editar tus propios registros.');
+    if (r.estado === 'aprobado') throw new ErrorApp('No se puede editar un registro aprobado.');
+    verificarCruce_(filas, u.id, c, r.id);
+    const nuevo = Object.assign({}, r, c, { estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '' });
+    hoja.getRange(i + 2, 1, 1, COLS_REGISTROS.length)
+      .setValues([COLS_REGISTROS.map(col => seguro_(nuevo[col]))]);
+    return { registro: nuevo };
+  });
 }
 
 function registrosDe_(u, d) {
-  return filtrarPorMes_(leerRegistros_().filter(r => r.miembro_id === u.id), d.mes)
-    .sort(porFechaDesc_);
+  let rs = filtrarPorMes_(leerRegistros_().filter(r => r.miembro_id === u.id), d.mes);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.desde || '')) rs = rs.filter(r => r.fecha >= d.desde);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.hasta || '')) rs = rs.filter(r => r.fecha <= d.hasta);
+  return rs.sort(porFechaDesc_);
 }
 
 function eliminar_(u, id) {
@@ -161,7 +206,19 @@ function registrosParaRevisar_(u, d) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para revisar horas.');
   let rs = leerRegistros_().filter(r => puedeRevisar_(u, r.miembro_id, r.equipo));
   if (d.estado && ESTADOS.indexOf(d.estado) !== -1) rs = rs.filter(r => r.estado === d.estado);
+  if (d.miembro_id) rs = rs.filter(r => r.miembro_id === String(d.miembro_id));
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.desde || '')) rs = rs.filter(r => r.fecha >= d.desde);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.hasta || '')) rs = rs.filter(r => r.fecha <= d.hasta);
   return filtrarPorMes_(rs, d.mes).sort(porFechaDesc_);
+}
+
+/** Miembros activos cuyas horas puede revisar `u` (para ver su calendario). */
+function miembrosEquipo_(u) {
+  if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para ver otros calendarios.');
+  return leerMiembros_()
+    .filter(m => m.activo && puedeRevisar_(u, m.id, m.equipo))
+    .map(m => ({ id: m.id, nombre: m.nombre, equipo: m.equipo }))
+    .sort((a, b) => a.equipo.localeCompare(b.equipo) || a.nombre.localeCompare(b.nombre));
 }
 
 function revisar_(u, d) {
@@ -284,7 +341,7 @@ function limpiarRegistro_(r) {
     horas: Number(r.horas) || 0, area: String(r.area), descripcion: String(r.descripcion),
     enlace: String(r.enlace), estado: String(r.estado || 'pendiente'),
     revisado_por: String(r.revisado_por), revisado_en: String(r.revisado_en),
-    comentario: String(r.comentario),
+    comentario: String(r.comentario), inicio: hora_(r.inicio), fin: hora_(r.fin),
   };
 }
 
@@ -299,13 +356,27 @@ function listarAreas_() {
 /* Utilidades                                                          */
 /* ------------------------------------------------------------------ */
 
+/** Sheets puede convertir "08:30" en una hora; la devolvemos siempre como texto HH:mm. */
+function hora_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, ZONA, 'HH:mm');
+  return String(v || '').trim();
+}
+
+function aMinutos_(hhmm) {
+  const p = String(hhmm).split(':');
+  return Number(p[0]) * 60 + Number(p[1]);
+}
+
 function normalizar_(s) { return String(s || '').trim().toLowerCase(); }
 
 function filtrarPorMes_(rs, mes) {
   return /^\d{4}-\d{2}$/.test(mes || '') ? rs.filter(r => r.fecha.slice(0, 7) === mes) : rs;
 }
 
-function porFechaDesc_(a, b) { return b.fecha.localeCompare(a.fecha) || b.creado.localeCompare(a.creado); }
+function porFechaDesc_(a, b) {
+  return b.fecha.localeCompare(a.fecha) || (b.inicio || '').localeCompare(a.inicio || '') ||
+    b.creado.localeCompare(a.creado);
+}
 
 /** Evita inyección de fórmulas: un texto que empieza con = + - @ se guarda como texto. */
 function seguro_(v) {
@@ -351,6 +422,7 @@ function configurar() {
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
   reg.getRange('F:F').setNumberFormat('@'); // fecha como texto yyyy-MM-dd
+  reg.getRange('O:P').setNumberFormat('@'); // inicio y fin como texto HH:mm
   crear(HOJA_AREAS, ['area'], [['Redacción'], ['Edición'], ['Investigación'], ['Redes sociales'],
     ['Diseño'], ['Web'], ['Coordinación'], ['Otro']]);
   generarCodigos();

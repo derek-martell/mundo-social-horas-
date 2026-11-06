@@ -2,141 +2,221 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <title>Registro de horas · Mundo Social</title>
+  <title>Horas Mundo Social</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="barra">
-    <div class="marca">Mundo Social <span>· Registro de horas</span></div>
-    <div id="sesion" class="sesion" hidden>
-      <span id="sesion-nombre"></span>
-      <button id="btn-salir" class="btn-texto" type="button">Salir</button>
-    </div>
-  </header>
+  <div id="banner-demo" class="banner-demo" hidden>
+    Modo demostración: datos de ejemplo. Lo que hagas aquí no se guarda.
+  </div>
 
-  <main>
-    <!-- Ingreso -->
-    <section id="vista-login" class="tarjeta angosta">
-      <h1>Ingresar</h1>
-      <p class="sutil">Usa el código de acceso personal que te dio tu coordinador.</p>
+  <!-- Ingreso -->
+  <section id="vista-login" class="login">
+    <div class="login-tarjeta">
+      <div class="logo grande"><span class="logo-marca" aria-hidden="true"></span><span>Horas <small>Mundo Social</small></span></div>
+      <p class="sutil">Registra en qué trabajaste y cuánto tiempo. Tu coordinador las aprueba.</p>
       <form id="form-login" autocomplete="off">
-        <label>Código de acceso
-          <input id="login-codigo" type="password" required minlength="6" autocomplete="current-password">
-        </label>
-        <button class="btn" type="submit">Entrar</button>
+        <label for="login-codigo">Código de acceso</label>
+        <input id="login-codigo" type="password" required minlength="6" autocomplete="current-password" placeholder="Te lo da tu coordinador">
+        <button class="btn primario" type="submit">Entrar</button>
       </form>
-    </section>
+      <div id="login-demo" class="login-demo" hidden>
+        <p>Prueba la demostración como:</p>
+        <div id="login-demo-botones" class="login-demo-botones"></div>
+      </div>
+    </div>
+  </section>
 
-    <!-- App -->
-    <div id="app" hidden>
-      <nav class="pestanas" id="pestanas">
-        <button data-vista="registrar" class="activa" type="button">Registrar</button>
-        <button data-vista="mis-horas" type="button">Mis horas</button>
-        <button data-vista="revisar" data-rol="revisor" type="button" hidden>Por aprobar</button>
-        <button data-vista="resumen" type="button">Totales</button>
+  <!-- Aplicación -->
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <button id="btn-menu" class="icono" type="button" aria-label="Mostrar u ocultar el panel lateral">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="logo"><span class="logo-marca" aria-hidden="true"></span><span>Horas <small>Mundo Social</small></span></div>
+
+      <div class="cal-controles" data-pagina="calendario">
+        <button id="btn-hoy" class="btn borde" type="button" title="Hoy (T)">Hoy</button>
+        <button id="btn-prev" class="icono" type="button" aria-label="Anterior" title="Anterior (K)">
+          <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <button id="btn-next" class="icono" type="button" aria-label="Siguiente" title="Siguiente (J)">
+          <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <h1 id="titulo-rango"></h1>
+      </div>
+      <div class="espacio"></div>
+
+      <div class="cal-controles" data-pagina="calendario">
+        <select id="sel-vista" class="btn borde" aria-label="Vista">
+          <option value="dia">Día</option>
+          <option value="semana">Semana</option>
+          <option value="mes">Mes</option>
+        </select>
+      </div>
+
+      <nav class="nav" id="nav">
+        <a href="#calendario" data-pagina-link="calendario" title="Calendario">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Calendario</span>
+        </a>
+        <a href="#por-aprobar" data-pagina-link="por-aprobar" data-solo-revisor hidden title="Por aprobar">
+          <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg><span>Por aprobar</span><b id="cuenta-pendientes" class="insignia" hidden></b>
+        </a>
+        <a href="#totales" data-pagina-link="totales" title="Totales">
+          <svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span>Totales</span>
+        </a>
       </nav>
 
-      <section id="vista-registrar" class="tarjeta vista">
-        <h2>Registrar horas</h2>
-        <form id="form-registro">
-          <div class="fila">
-            <label>Fecha <input name="fecha" type="date" required></label>
-            <label>Horas <input name="horas" type="number" min="0.25" max="24" step="0.25" required placeholder="p. ej. 2.5"></label>
+      <div class="usuario">
+        <button id="btn-usuario" class="avatar" type="button" aria-haspopup="true" aria-expanded="false"></button>
+        <div id="menu-usuario" class="menu-usuario" hidden>
+          <div class="avatar grande" id="menu-avatar"></div>
+          <b id="menu-nombre"></b>
+          <span id="menu-rol" class="sutil"></span>
+          <button id="btn-salir" class="btn borde" type="button">Salir</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="cuerpo">
+      <aside id="lateral" class="lateral">
+        <button id="btn-crear" class="crear" type="button" title="Registrar horas (C)">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          Registrar horas
+        </button>
+
+        <div class="mini" id="mini"></div>
+
+        <section class="bloque" id="bloque-ver" hidden>
+          <h2>Calendario de</h2>
+          <select id="sel-persona" class="selector"></select>
+        </section>
+
+        <section class="bloque">
+          <h2 id="resumen-titulo">Esta semana</h2>
+          <div class="resumen-rango">
+            <b id="resumen-total">0 h</b>
+            <div class="barra-estados" id="barra-estados"></div>
           </div>
-          <label>Área o proyecto <select name="area" required></select></label>
-          <label>Descripción <textarea name="descripcion" rows="3" maxlength="1000" required placeholder="¿Qué hiciste?"></textarea></label>
-          <label>Enlace <span class="sutil">(opcional: artículo, documento, publicación…)</span>
-            <input name="enlace" type="url" maxlength="500" placeholder="https://">
-          </label>
-          <button class="btn" type="submit">Guardar</button>
-        </form>
-      </section>
+          <ul class="filtros" id="filtros-estado"></ul>
+        </section>
 
-      <section id="vista-mis-horas" class="tarjeta vista" hidden>
-        <div class="cabecera">
-          <h2>Mis horas</h2>
-          <label class="en-linea">Mes <input id="mis-mes" type="month"></label>
-        </div>
-        <div id="mis-totales" class="cifras"></div>
-        <div class="tabla-envoltura">
-          <table>
-            <thead><tr><th>Fecha</th><th>Horas</th><th>Área</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
-            <tbody id="mis-tabla"></tbody>
-          </table>
-        </div>
-      </section>
+        <section class="bloque">
+          <h2>Áreas</h2>
+          <ul class="filtros" id="filtros-area"></ul>
+        </section>
 
-      <section id="vista-revisar" class="tarjeta vista" hidden>
-        <div class="cabecera">
-          <h2>Horas por aprobar</h2>
-          <div class="filtros">
-            <label class="en-linea">Estado
-              <select id="rev-estado">
+        <p class="atajos sutil">Atajos: <kbd>C</kbd> registrar · <kbd>T</kbd> hoy · <kbd>D</kbd> <kbd>S</kbd> <kbd>M</kbd> vistas · <kbd>J</kbd>/<kbd>K</kbd> avanzar</p>
+      </aside>
+
+      <main class="principal">
+        <div id="viendo" class="viendo" hidden></div>
+
+        <!-- Calendario -->
+        <section id="pagina-calendario" class="pagina panel">
+          <div id="cal" class="cal"></div>
+        </section>
+
+        <!-- Por aprobar -->
+        <section id="pagina-por-aprobar" class="pagina panel relleno" hidden>
+          <div class="cabecera">
+            <div>
+              <h2>Horas por aprobar</h2>
+              <p class="sutil" id="rev-alcance"></p>
+            </div>
+            <div class="filtros-linea">
+              <select id="rev-estado" class="selector" aria-label="Estado">
                 <option value="pendiente">Pendientes</option>
                 <option value="aprobado">Aprobadas</option>
                 <option value="rechazado">Rechazadas</option>
                 <option value="">Todas</option>
               </select>
-            </label>
-            <label class="en-linea">Mes <input id="rev-mes" type="month"></label>
+              <select id="rev-persona" class="selector" aria-label="Miembro"></select>
+              <input id="rev-mes" class="selector" type="month" aria-label="Mes">
+            </div>
           </div>
-        </div>
-        <p class="sutil" id="rev-alcance"></p>
-        <div class="acciones-lote">
-          <button id="rev-aprobar-sel" class="btn" type="button" disabled>Aprobar seleccionadas</button>
-        </div>
-        <div class="tabla-envoltura">
-          <table>
-            <thead><tr><th><input type="checkbox" id="rev-todas" aria-label="Seleccionar todas"></th><th>Miembro</th><th>Fecha</th><th>Horas</th><th>Área</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
-            <tbody id="rev-tabla"></tbody>
-          </table>
-        </div>
-      </section>
+          <div class="acciones-lote">
+            <button id="rev-aprobar-sel" class="btn primario" type="button" disabled>Aprobar seleccionadas</button>
+          </div>
+          <div class="tabla-envoltura">
+            <table class="tabla">
+              <thead><tr>
+                <th><input type="checkbox" id="rev-todas" aria-label="Seleccionar todas"></th>
+                <th>Miembro</th><th>Fecha</th><th>Horario</th><th class="num">Horas</th><th>Área</th><th>Descripción</th><th>Estado</th><th></th>
+              </tr></thead>
+              <tbody id="rev-tabla"></tbody>
+            </table>
+          </div>
+        </section>
 
-      <section id="vista-resumen" class="tarjeta vista" hidden>
-        <div class="cabecera">
-          <h2>Totales</h2>
-          <div class="filtros">
-            <label class="en-linea">Desde <input id="res-desde" type="month"></label>
-            <label class="en-linea">Hasta <input id="res-hasta" type="month"></label>
-            <label class="en-linea"><input id="res-aprobadas" type="checkbox"> Solo aprobadas</label>
+        <!-- Totales -->
+        <section id="pagina-totales" class="pagina panel relleno" hidden>
+          <div class="cabecera">
+            <div>
+              <h2>Totales</h2>
+              <p class="sutil" id="res-alcance"></p>
+            </div>
+            <div class="filtros-linea">
+              <label class="en-linea">Desde <input id="res-desde" class="selector" type="month"></label>
+              <label class="en-linea">Hasta <input id="res-hasta" class="selector" type="month"></label>
+              <label class="en-linea"><input id="res-aprobadas" type="checkbox"> Solo aprobadas</label>
+            </div>
           </div>
-        </div>
-        <p class="sutil" id="res-alcance"></p>
-        <div id="res-cifras" class="cifras"></div>
-        <h3>Por persona y mes</h3>
-        <div class="tabla-envoltura">
-          <table>
-            <thead><tr><th>Mes</th><th>Miembro</th><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
-            <tbody id="res-persona"></tbody>
-          </table>
-        </div>
-        <div class="dos-columnas">
-          <div>
-            <h3>Por área o proyecto</h3>
-            <div class="tabla-envoltura"><table>
-              <thead><tr><th>Área</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
-              <tbody id="res-area"></tbody>
-            </table></div>
+          <div id="res-cifras" class="cifras"></div>
+          <h3>Por persona y mes</h3>
+          <div class="tabla-envoltura">
+            <table class="tabla">
+              <thead><tr><th>Mes</th><th>Miembro</th><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+              <tbody id="res-persona"></tbody>
+            </table>
           </div>
-          <div>
-            <h3>Por equipo</h3>
-            <div class="tabla-envoltura"><table>
-              <thead><tr><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
-              <tbody id="res-equipo"></tbody>
-            </table></div>
+          <div class="dos-columnas">
+            <div>
+              <h3>Por área o proyecto</h3>
+              <div class="tabla-envoltura"><table class="tabla">
+                <thead><tr><th>Área</th><th></th><th class="num">Total</th></tr></thead>
+                <tbody id="res-area"></tbody>
+              </table></div>
+            </div>
+            <div>
+              <h3>Por equipo</h3>
+              <div class="tabla-envoltura"><table class="tabla">
+                <thead><tr><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+                <tbody id="res-equipo"></tbody>
+              </table></div>
+            </div>
           </div>
-        </div>
-        <button id="res-csv" class="btn secundario" type="button">Descargar CSV (por persona y mes)</button>
-      </section>
+          <button id="res-csv" class="btn borde" type="button">Descargar CSV</button>
+        </section>
+      </main>
     </div>
-  </main>
+  </div>
 
+  <button id="btn-crear-flotante" class="flotante" type="button" aria-label="Registrar horas" hidden>
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <div id="velo" class="velo" hidden></div>
+  <div id="popover" class="popover" role="dialog" aria-modal="false" hidden></div>
+  <div id="dialogo" class="dialogo-fondo" hidden>
+    <form id="dialogo-form" class="dialogo" role="dialog" aria-modal="true" aria-labelledby="dialogo-titulo">
+      <h2 id="dialogo-titulo"></h2>
+      <p id="dialogo-texto" class="sutil"></p>
+      <textarea id="dialogo-campo" rows="3" maxlength="500"></textarea>
+      <div class="dialogo-pie">
+        <button type="button" class="btn texto" id="dialogo-cancelar">Cancelar</button>
+        <button type="submit" class="btn primario" id="dialogo-ok"></button>
+      </div>
+    </form>
+  </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
   <script src="config.js"></script>
+  <script src="demo.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
