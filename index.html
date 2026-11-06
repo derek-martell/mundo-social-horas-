@@ -106,11 +106,6 @@
           <ul class="filtros" id="filtros-estado"></ul>
         </section>
 
-        <section class="bloque">
-          <h2>Áreas</h2>
-          <ul class="filtros" id="filtros-area"></ul>
-        </section>
-
         <p class="atajos sutil">Atajos: <kbd>C</kbd> registrar · <kbd>T</kbd> hoy · <kbd>D</kbd> <kbd>S</kbd> <kbd>M</kbd> vistas · <kbd>J</kbd>/<kbd>K</kbd> avanzar</p>
       </aside>
 
@@ -171,26 +166,15 @@
           <h3>Por persona y mes</h3>
           <div class="tabla-envoltura">
             <table class="tabla">
-              <thead><tr><th>Mes</th><th>Miembro</th><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+              <thead><tr><th>Mes</th><th>Miembro</th><th>Área</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
               <tbody id="res-persona"></tbody>
             </table>
           </div>
-          <div class="dos-columnas">
-            <div>
-              <h3>Por área o proyecto</h3>
-              <div class="tabla-envoltura"><table class="tabla">
-                <thead><tr><th>Área</th><th></th><th class="num">Total</th></tr></thead>
-                <tbody id="res-area"></tbody>
-              </table></div>
-            </div>
-            <div>
-              <h3>Por equipo</h3>
-              <div class="tabla-envoltura"><table class="tabla">
-                <thead><tr><th>Equipo</th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
-                <tbody id="res-equipo"></tbody>
-              </table></div>
-            </div>
-          </div>
+          <h3>Por área</h3>
+          <div class="tabla-envoltura"><table class="tabla">
+            <thead><tr><th>Área</th><th></th><th class="num">Aprobadas</th><th class="num">Pendientes</th><th class="num">Total</th></tr></thead>
+            <tbody id="res-area"></tbody>
+          </table></div>
           <button id="res-csv" class="btn borde" type="button">Descargar CSV</button>
         </section>
       </main>

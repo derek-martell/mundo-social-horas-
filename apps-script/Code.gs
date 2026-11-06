@@ -3,17 +3,19 @@
  * Backend en Google Apps Script sobre un Google Sheet.
  *
  * Hojas que usa (las crea la función `configurar`):
- *   Miembros  : id | nombre | email | equipo | rol | coordina | codigo | activo
- *   Registros : id | creado | miembro_id | miembro | equipo | fecha | horas | area |
- *               descripcion | enlace | estado | revisado_por | revisado_en | comentario |
- *               inicio | fin
- *   Areas     : area
+ *   Miembros  : id | nombre | email | area | rol | coordina | codigo | activo
+ *   Registros : id | creado | miembro_id | miembro | area | fecha | inicio | fin | horas |
+ *               descripcion | enlace | estado | revisado_por | revisado_en | comentario
  *
- * Roles:
- *   miembro      -> registra y ve solo sus horas.
- *   coordinador  -> además ve y aprueba las horas de los equipos listados en "coordina"
- *                   (separados por comas). No puede aprobar sus propias horas.
- *   admin        -> ve y aprueba todo, y ve los totales de todo el grupo.
+ * Cada persona pertenece a un área (Redacción, Redes sociales, Diseño…).
+ *
+ * Roles y quién aprueba a quién:
+ *   miembro      -> registra y ve solo sus horas. Las aprueba el coordinador de su área.
+ *   coordinador  -> además ve y aprueba las horas de los miembros de las áreas listadas en
+ *                   "coordina" (separadas por comas). Sus propias horas las aprueba el admin.
+ *   admin        -> aprueba las horas de los coordinadores (y de los miembros de un área que
+ *                   no tenga coordinador activo). En Totales ve el resumen de todo el grupo.
+ *   Nadie aprueba sus propias horas.
  *
  * Todas las peticiones llegan por POST con un cuerpo JSON: { accion, codigo, ... }.
  * El frontend envía el cuerpo como text/plain para evitar el preflight CORS.
@@ -21,11 +23,10 @@
 
 const HOJA_MIEMBROS = 'Miembros';
 const HOJA_REGISTROS = 'Registros';
-const HOJA_AREAS = 'Areas';
 
-const COLS_MIEMBROS = ['id', 'nombre', 'email', 'equipo', 'rol', 'coordina', 'codigo', 'activo'];
-const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'equipo', 'fecha', 'horas', 'area',
-  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario', 'inicio', 'fin'];
+const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo'];
+const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'area', 'fecha', 'inicio', 'fin', 'horas',
+  'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario'];
 
 const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
 const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el Web App
@@ -42,16 +43,17 @@ function doGet() {
 function doPost(e) {
   try {
     const datos = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    const usuario = autenticar_(datos.codigo);
+    const ctx = contexto_();
+    const usuario = autenticar_(datos.codigo, ctx);
     const acciones = {
-      login: () => ({ usuario: perfilPublico_(usuario), areas: listarAreas_() }),
+      login: () => ({ usuario: perfilPublico_(usuario), areas: ctx.areas }),
       registrar: () => registrar_(usuario, datos),
       editar: () => editar_(usuario, datos),
       misHoras: () => ({ registros: registrosDe_(usuario, datos) }),
       eliminar: () => eliminar_(usuario, datos.id),
-      porRevisar: () => ({ registros: registrosParaRevisar_(usuario, datos) }),
-      miembrosEquipo: () => ({ miembros: miembrosEquipo_(usuario) }),
-      revisar: () => revisar_(usuario, datos),
+      porRevisar: () => ({ registros: registrosParaRevisar_(usuario, datos, ctx) }),
+      miembrosEquipo: () => ({ miembros: miembrosEquipo_(usuario, ctx) }),
+      revisar: () => revisar_(usuario, datos, ctx),
       resumen: () => resumen_(usuario, datos),
     };
     const fn = acciones[datos.accion];
@@ -72,38 +74,59 @@ function json_(obj) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Autenticación                                                       */
+/* Miembros, autenticación y permisos                                  */
 /* ------------------------------------------------------------------ */
 
-function autenticar_(codigo) {
+/** Lee los miembros una vez por petición y precalcula qué áreas tienen coordinador. */
+function contexto_() {
+  const miembros = leerMiembros_();
+  const porId = {};
+  miembros.forEach(m => { porId[m.id] = m; });
+  const areasConCoordinador = {};
+  miembros.filter(m => m.activo && m.rol === 'coordinador')
+    .forEach(m => m.coordina.forEach(a => { areasConCoordinador[a] = true; }));
+  const areas = [];
+  miembros.filter(m => m.activo && m.area).forEach(m => { if (areas.indexOf(m.area) === -1) areas.push(m.area); });
+  areas.sort((a, b) => a.localeCompare(b));
+  return { miembros, porId, areasConCoordinador, areas };
+}
+
+function autenticar_(codigo, ctx) {
   const cache = CacheService.getScriptCache();
   const fallidos = Number(cache.get('fallidos') || 0);
   if (fallidos >= MAX_INTENTOS_FALLIDOS) {
     throw new ErrorApp('Demasiados intentos fallidos. Espera unos minutos.');
   }
   codigo = String(codigo || '').trim();
-  const m = codigo.length >= 6 && leerMiembros_().find(x => x.activo && x.codigo === codigo);
+  const m = codigo.length >= 6 && ctx.miembros.find(x => x.activo && x.codigo === codigo);
   if (!m) {
     cache.put('fallidos', String(fallidos + 1), 600);
     Utilities.sleep(800);
     throw new ErrorApp('Código de acceso inválido.');
   }
+  if (!m.area) throw new ErrorApp('Tu usuario no tiene un área asignada. Pídele al administrador que la agregue.');
   return m;
 }
 
 function perfilPublico_(m) {
-  return { id: m.id, nombre: m.nombre, equipo: m.equipo, rol: m.rol, coordina: m.coordinaNombres };
+  return { id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, coordina: m.coordinaNombres };
 }
 
 function esAdmin_(u) { return u.rol === 'admin'; }
 function esRevisor_(u) { return u.rol === 'admin' || u.rol === 'coordinador'; }
 
-/** ¿Puede `u` revisar un registro de alguien del equipo `equipo` con id `miembroId`? */
-function puedeRevisar_(u, miembroId, equipo) {
+/**
+ * ¿Puede `u` revisar las horas de la persona `miembroId`, registradas en el área `area`?
+ * El coordinador revisa a los miembros de sus áreas; el admin, a los coordinadores
+ * (y a quien esté en un área sin coordinador).
+ */
+function puedeRevisar_(u, miembroId, area, ctx) {
   if (miembroId === u.id) return false;            // nadie aprueba sus propias horas
-  if (esAdmin_(u)) return true;
-  if (u.rol !== 'coordinador') return false;
-  return u.coordina.indexOf(normalizar_(equipo)) !== -1;
+  const m = ctx.porId[miembroId] || { id: miembroId, rol: 'miembro', area: area };
+  const a = normalizar_(area || m.area);
+  if (u.rol === 'coordinador') return m.rol === 'miembro' && u.coordina.indexOf(a) !== -1;
+  if (esAdmin_(u)) return m.rol !== 'miembro' || !ctx.areasConCoordinador[a];
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,9 +149,6 @@ function validarCampos_(d) {
   if (aMinutos_(fin) > 24 * 60) throw new ErrorApp('Hora de fin inválida.');
   const horas = Math.round(minutos / 15) / 4; // múltiplos de 15 minutos
 
-  const area = String(d.area || '').trim();
-  if (listarAreas_().indexOf(area) === -1) throw new ErrorApp('Área o proyecto inválido.');
-
   const descripcion = String(d.descripcion || '').trim();
   if (descripcion.length < 3) throw new ErrorApp('Agrega una descripción.');
   if (descripcion.length > 1000) throw new ErrorApp('La descripción es muy larga (máx. 1000).');
@@ -137,7 +157,7 @@ function validarCampos_(d) {
   if (enlace && !/^https?:\/\/\S+$/i.test(enlace)) throw new ErrorApp('El enlace debe empezar con http:// o https://');
   if (enlace.length > 500) throw new ErrorApp('El enlace es muy largo.');
 
-  return { fecha, inicio, fin, horas, area, descripcion, enlace };
+  return { fecha, inicio, fin, horas, descripcion, enlace };
 }
 
 /** Lanza un error si el tramo se cruza con otro registro (no rechazado) del mismo miembro. */
@@ -157,7 +177,7 @@ function registrar_(u, d) {
     verificarCruce_(leerRegistros_(), u.id, c, null);
     const fila = Object.assign({
       id: Utilities.getUuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
-      equipo: u.equipo, estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '',
+      area: u.area, estado: 'pendiente', revisado_por: '', revisado_en: '', comentario: '',
     }, c);
     hoja_(HOJA_REGISTROS).appendRow(COLS_REGISTROS.map(col => seguro_(fila[col])));
     return { registro: fila };
@@ -183,10 +203,7 @@ function editar_(u, d) {
 }
 
 function registrosDe_(u, d) {
-  let rs = filtrarPorMes_(leerRegistros_().filter(r => r.miembro_id === u.id), d.mes);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.desde || '')) rs = rs.filter(r => r.fecha >= d.desde);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.hasta || '')) rs = rs.filter(r => r.fecha <= d.hasta);
-  return rs.sort(porFechaDesc_);
+  return filtrarRango_(leerRegistros_().filter(r => r.miembro_id === u.id), d).sort(porFechaDesc_);
 }
 
 function eliminar_(u, id) {
@@ -202,26 +219,24 @@ function eliminar_(u, id) {
   });
 }
 
-function registrosParaRevisar_(u, d) {
+function registrosParaRevisar_(u, d, ctx) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para revisar horas.');
-  let rs = leerRegistros_().filter(r => puedeRevisar_(u, r.miembro_id, r.equipo));
+  let rs = leerRegistros_().filter(r => puedeRevisar_(u, r.miembro_id, r.area, ctx));
   if (d.estado && ESTADOS.indexOf(d.estado) !== -1) rs = rs.filter(r => r.estado === d.estado);
   if (d.miembro_id) rs = rs.filter(r => r.miembro_id === String(d.miembro_id));
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.desde || '')) rs = rs.filter(r => r.fecha >= d.desde);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.hasta || '')) rs = rs.filter(r => r.fecha <= d.hasta);
-  return filtrarPorMes_(rs, d.mes).sort(porFechaDesc_);
+  return filtrarRango_(rs, d).sort(porFechaDesc_);
 }
 
-/** Miembros activos cuyas horas puede revisar `u` (para ver su calendario). */
-function miembrosEquipo_(u) {
+/** Personas activas cuyas horas puede revisar `u` (para ver su calendario). */
+function miembrosEquipo_(u, ctx) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para ver otros calendarios.');
-  return leerMiembros_()
-    .filter(m => m.activo && puedeRevisar_(u, m.id, m.equipo))
-    .map(m => ({ id: m.id, nombre: m.nombre, equipo: m.equipo }))
-    .sort((a, b) => a.equipo.localeCompare(b.equipo) || a.nombre.localeCompare(b.nombre));
+  return ctx.miembros
+    .filter(m => m.activo && m.area && puedeRevisar_(u, m.id, m.area, ctx))
+    .map(m => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol }))
+    .sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre));
 }
 
-function revisar_(u, d) {
+function revisar_(u, d, ctx) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para revisar horas.');
   const estado = String(d.estado || '');
   if (ESTADOS.indexOf(estado) === -1) throw new ErrorApp('Estado inválido.');
@@ -238,7 +253,7 @@ function revisar_(u, d) {
       const i = filas.findIndex(r => r.id === id);
       if (i === -1) return;
       const r = filas[i];
-      if (!puedeRevisar_(u, r.miembro_id, r.equipo)) return;
+      if (!puedeRevisar_(u, r.miembro_id, r.area, ctx)) return;
       hoja.getRange(i + 2, colEstado, 1, 4).setValues([[
         estado,
         estado === 'pendiente' ? '' : seguro_(u.nombre),
@@ -253,7 +268,7 @@ function revisar_(u, d) {
 }
 
 /**
- * Totales. Admin: todo el grupo. Coordinador: sus equipos (incluye sus propias horas).
+ * Totales. Admin: todo el grupo. Coordinador: sus áreas (incluye sus propias horas).
  * Miembro: solo él mismo.
  * d.desde / d.hasta: 'yyyy-MM' opcionales. d.soloAprobadas: boolean.
  */
@@ -261,7 +276,7 @@ function resumen_(u, d) {
   let rs = leerRegistros_();
   if (!esAdmin_(u)) {
     rs = rs.filter(r => r.miembro_id === u.id ||
-      (u.rol === 'coordinador' && u.coordina.indexOf(normalizar_(r.equipo)) !== -1));
+      (u.rol === 'coordinador' && u.coordina.indexOf(normalizar_(r.area)) !== -1));
   }
   const desde = /^\d{4}-\d{2}$/.test(d.desde || '') ? d.desde : '';
   const hasta = /^\d{4}-\d{2}$/.test(d.hasta || '') ? d.hasta : '';
@@ -269,25 +284,23 @@ function resumen_(u, d) {
     .filter(r => !d.soloAprobadas || r.estado === 'aprobado')
     .filter(r => (!desde || r.fecha.slice(0, 7) >= desde) && (!hasta || r.fecha.slice(0, 7) <= hasta));
 
-  const porPersonaMes = {}, porArea = {}, porEquipo = {};
+  const porPersonaMes = {}, porArea = {};
   let total = 0, aprobadas = 0, pendientes = 0;
   rs.forEach(r => {
     const mes = r.fecha.slice(0, 7);
     const k = r.miembro_id + '|' + mes;
-    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, equipo: r.equipo, mes, aprobadas: 0, pendientes: 0 });
+    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, area: r.area, mes, aprobadas: 0, pendientes: 0 });
     const a = porArea[r.area] || (porArea[r.area] = { area: r.area, aprobadas: 0, pendientes: 0 });
-    const e = porEquipo[r.equipo] || (porEquipo[r.equipo] = { equipo: r.equipo, aprobadas: 0, pendientes: 0 });
     const campo = r.estado === 'aprobado' ? 'aprobadas' : 'pendientes';
-    pm[campo] += r.horas; a[campo] += r.horas; e[campo] += r.horas;
+    pm[campo] += r.horas; a[campo] += r.horas;
     total += r.horas;
     if (campo === 'aprobadas') aprobadas += r.horas; else pendientes += r.horas;
   });
   return {
     totales: { total, aprobadas, pendientes, registros: rs.length },
     porPersonaMes: Object.values(porPersonaMes)
-      .sort((x, y) => y.mes.localeCompare(x.mes) || x.miembro.localeCompare(y.miembro)),
+      .sort((x, y) => y.mes.localeCompare(x.mes) || x.area.localeCompare(y.area) || x.miembro.localeCompare(y.miembro)),
     porArea: Object.values(porArea).sort((x, y) => (y.aprobadas + y.pendientes) - (x.aprobadas + x.pendientes)),
-    porEquipo: Object.values(porEquipo).sort((x, y) => x.equipo.localeCompare(y.equipo)),
   };
 }
 
@@ -315,7 +328,7 @@ function leerMiembros_() {
     .map(m => ({
       id: String(m.id).trim(),
       nombre: String(m.nombre).trim(),
-      equipo: String(m.equipo).trim(),
+      area: String(m.area).trim(),
       rol: ['admin', 'coordinador'].indexOf(normalizar_(m.rol)) !== -1 ? normalizar_(m.rol) : 'miembro',
       coordina: String(m.coordina || '').split(',').map(normalizar_).filter(Boolean),
       coordinaNombres: String(m.coordina || '').split(',').map(x => x.trim()).filter(Boolean),
@@ -337,19 +350,11 @@ function limpiarRegistro_(r) {
     ? Utilities.formatDate(r.fecha, ZONA, 'yyyy-MM-dd') : String(r.fecha);
   return {
     id: String(r.id), creado: String(r.creado), miembro_id: String(r.miembro_id),
-    miembro: String(r.miembro), equipo: String(r.equipo), fecha,
-    horas: Number(r.horas) || 0, area: String(r.area), descripcion: String(r.descripcion),
-    enlace: String(r.enlace), estado: String(r.estado || 'pendiente'),
-    revisado_por: String(r.revisado_por), revisado_en: String(r.revisado_en),
-    comentario: String(r.comentario), inicio: hora_(r.inicio), fin: hora_(r.fin),
+    miembro: String(r.miembro), area: String(r.area), fecha,
+    inicio: hora_(r.inicio), fin: hora_(r.fin), horas: Number(r.horas) || 0,
+    descripcion: String(r.descripcion), enlace: String(r.enlace), estado: String(r.estado || 'pendiente'),
+    revisado_por: String(r.revisado_por), revisado_en: String(r.revisado_en), comentario: String(r.comentario),
   };
-}
-
-function listarAreas_() {
-  const h = hoja_(HOJA_AREAS);
-  const n = h.getLastRow() - 1;
-  if (n < 1) return [];
-  return h.getRange(2, 1, n, 1).getValues().map(v => String(v[0]).trim()).filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ */
@@ -369,8 +374,12 @@ function aMinutos_(hhmm) {
 
 function normalizar_(s) { return String(s || '').trim().toLowerCase(); }
 
-function filtrarPorMes_(rs, mes) {
-  return /^\d{4}-\d{2}$/.test(mes || '') ? rs.filter(r => r.fecha.slice(0, 7) === mes) : rs;
+/** Filtra por d.mes ('yyyy-MM') y por d.desde / d.hasta ('yyyy-MM-dd'), si vienen. */
+function filtrarRango_(rs, d) {
+  if (/^\d{4}-\d{2}$/.test(d.mes || '')) rs = rs.filter(r => r.fecha.slice(0, 7) === d.mes);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.desde || '')) rs = rs.filter(r => r.fecha >= d.desde);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.hasta || '')) rs = rs.filter(r => r.fecha <= d.hasta);
+  return rs;
 }
 
 function porFechaDesc_(a, b) {
@@ -421,10 +430,7 @@ function configurar() {
     ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí'],
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
-  reg.getRange('F:F').setNumberFormat('@'); // fecha como texto yyyy-MM-dd
-  reg.getRange('O:P').setNumberFormat('@'); // inicio y fin como texto HH:mm
-  crear(HOJA_AREAS, ['area'], [['Redacción'], ['Edición'], ['Investigación'], ['Redes sociales'],
-    ['Diseño'], ['Web'], ['Coordinación'], ['Otro']]);
+  reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
   generarCodigos();
 }
 
