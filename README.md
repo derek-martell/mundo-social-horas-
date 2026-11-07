@@ -57,6 +57,16 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 - Al agregar a alguien, o con **Nuevo código**, la app muestra su código de acceso de 8 dígitos **una sola vez**, para que el director se lo envíe por privado.
 - El director no puede cambiar roles ni tocar a otros directores. El admin gestiona a todos: crea directores, define qué áreas dirige cada uno y cambia roles.
 
+### Actividad (supervisión de RRHH)
+
+- Cada persona del área **Recursos Humanos** puede supervisar una o varias áreas (columna `supervisa` de Miembros). Se lo asignan las **directoras de RRHH** o el **admin**, desde **Planilla → Editar** (o **Asignar supervisión**).
+- La pestaña **Actividad** muestra, por persona activa: última vez que registró horas, horas de los últimos 7 días y del mes, tareas abiertas y vencidas, y su estado:
+  - **Inactivo** (rojo): 7 días o más sin registrar horas, o nunca registró.
+  - **En riesgo** (amarillo): 4 a 6 días.
+  - **Activo**.
+- El supervisor ve solo sus áreas; el admin y las directoras de RRHH ven todas.
+- **Notas de seguimiento:** quien supervisa el área (y el admin y las directoras de RRHH) puede anotar el seguimiento de cada persona. El director del área las lee desde su Planilla (botón **Seguimiento**).
+
 ## Puesta en marcha
 
 ### 1. Crear el Google Sheet
@@ -70,10 +80,11 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 2. (Opcional) En **Configuración del proyecto ⚙️**, marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`apps-script/appsscript.json`](apps-script/appsscript.json). Así quedan fijados la zona horaria (Lima) y el runtime V8.
 3. Guarda el proyecto.
 4. En la barra superior, comprueba que el selector de funciones diga **`configurar`** (es la primera del archivo) y pulsa **▶ Ejecutar**. En el **Registro de ejecución** verás "N código(s) generado(s)" y "Listo. Hojas: Miembros, Registros, Tareas". Para verificar el Web App ya desplegado, abre su URL en el navegador: muestra un diagnóstico (hojas y cuántas personas tienen código). La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
-   Esto crea tres hojas:
-   - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo`, con tres filas de ejemplo.
+   Esto crea cuatro hojas:
+   - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo | supervisa`, con tres filas de ejemplo.
    - **Registros:** aquí se guardan las horas. No hace falta tocarla.
    - **Tareas:** las tareas y metas asignadas. Tampoco hace falta tocarla.
+   - **Seguimiento:** las notas de seguimiento de RRHH.
 5. Recarga el Sheet. Aparece el menú **Registro de horas** con las opciones *Configurar hojas* y *Generar códigos faltantes*.
 
 ### 3. Cargar a los miembros
@@ -90,6 +101,7 @@ En la hoja **Miembros**, borra las filas de ejemplo y agrega una fila por person
 | `coordina` | Solo para coordinadores: el área que coordinan (o varias, separadas por comas). Se escribe igual que en la columna `area` (no importan las mayúsculas). Normalmente es su propia área. |
 | `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código numérico de 8 dígitos, distinto para cada persona (p. ej. `48302917`). |
 | `activo` | `sí` para permitir el acceso. Pon `no` para quitárselo sin borrar sus horas. |
+| `supervisa` | Solo para personas de RRHH: las áreas cuya actividad supervisan, separadas por comas. Se puede dejar vacío y asignarlo desde la Planilla. |
 
 Envía a cada persona su código por un canal privado (WhatsApp, correo). Si un código se filtra, borra esa celda y vuelve a generar uno.
 
