@@ -279,13 +279,27 @@
       return { tareas: ts.sort(ordenTareas).map(conHoras) };
     },
     crearTarea(u, d) {
-      const b = MIEMBROS.find((m) => m.id === d.asignada_a_id);
-      const aSiMismo = b && b.id === u.id && u.rol === 'admin';
-      if (!b || !(aSiMismo || puedeRevisar(u, b.id, b.area))) throw new ErrorDemo('No puedes asignar tareas a esa persona.');
-      const t = Object.assign({ id: uuid(), creada: new Date().toISOString(), asignada_por_id: u.id, asignada_por: u.nombre,
-        asignada_a_id: b.id, asignada_a: b.nombre, area: b.area, estado: 'pendiente', completada_en: '', nota: '' }, validarTarea(d));
-      tareas.push(t);
-      return { tarea: conHoras(t) };
+      let ids = [d.asignada_a_id];
+      if (Array.isArray(d.asignada_a_ids) && d.asignada_a_ids.length) {
+        if (u.rol !== 'admin' && d.asignada_a_ids.length > 1) throw new ErrorDemo('Solo el administrador asigna una tarea a varias personas.');
+        ids = d.asignada_a_ids;
+      }
+      ids = ids.filter((x, i) => x && ids.indexOf(x) === i);
+      if (!ids.length) throw new ErrorDemo('Elige a quién asignar la tarea.');
+      const personas = ids.map((id) => {
+        const b = MIEMBROS.find((m) => m.id === id);
+        const aSiMismo = b && b.id === u.id && u.rol === 'admin';
+        if (!b || b.activo === false || !(aSiMismo || puedeRevisar(u, b.id, b.area))) throw new ErrorDemo('No puedes asignar tareas a ' + (b ? b.nombre : 'esa persona') + '.');
+        return b;
+      });
+      const c = validarTarea(d);
+      const creadas = personas.map((b) => {
+        const t = Object.assign({ id: uuid(), creada: new Date().toISOString(), asignada_por_id: u.id, asignada_por: u.nombre,
+          asignada_a_id: b.id, asignada_a: b.nombre, area: b.area, estado: 'pendiente', completada_en: '', nota: '' }, c);
+        tareas.push(t);
+        return conHoras(t);
+      });
+      return { tarea: creadas[0], tareas: creadas };
     },
     editarTarea(u, d) {
       const t = tareas.find((x) => x.id === d.id);

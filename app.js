@@ -1104,6 +1104,30 @@
     const yo = S.usuario.rol === 'admin' ? `<option value="${esc(S.usuario.id)}">Yo (${esc(S.usuario.nombre)})</option>` : '';
     $('#dt-para').innerHTML = yo + S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : ''}</option>`).join('');
     $('#dt-para').disabled = !!t;
+    // El admin puede asignar una misma tarea a varias personas (una tarea por persona).
+    const varios = S.usuario.rol === 'admin' && !t;
+    $('#dt-para').hidden = varios;
+    $('#dt-varios').hidden = !varios;
+    if (varios) {
+      const personas = [{ id: S.usuario.id, nombre: 'Yo', area: S.usuario.nombre, rol: 'admin' }].concat(S.equipo);
+      $('#dt-varios-lista').innerHTML = personas.map((m) => `<label><input type="checkbox" value="${esc(m.id)}" data-rol="${esc(m.rol)}">
+        <span>${esc(m.nombre)} <small>${esc(m.area)}${m.rol === 'coordinador' ? ' · director' : ''}</small></span></label>`).join('');
+      const contar = () => {
+        const n = $$('#dt-varios-lista input:checked').length;
+        $('#dt-varios-cuenta').textContent = n ? `${n} seleccionada${n > 1 ? 's' : ''}` : '';
+        $('#dt-ok').textContent = n > 1 ? `Asignar a ${n} personas` : 'Asignar';
+      };
+      $('#dt-varios-lista').onchange = contar;
+      $('#dt-varios').onclick = (ev) => {
+        const b = ev.target.closest('[data-varios]');
+        if (!b) return;
+        $$('#dt-varios-lista input').forEach((c) => {
+          c.checked = b.dataset.varios === 'todos' || (b.dataset.varios === 'directores' && c.dataset.rol === 'coordinador');
+        });
+        contar();
+      };
+      contar();
+    }
     if (t) {
       if (!S.equipo.some((m) => m.id === t.asignada_a_id)) $('#dt-para').innerHTML = `<option value="${esc(t.asignada_a_id)}">${esc(t.asignada_a)}</option>`;
       $('#dt-para').value = t.asignada_a_id;
@@ -1125,9 +1149,14 @@
       const tipoPlazo = $$('[name=dt-plazo]').find((r) => r.checked).value;
       const plazo = tipoPlazo === 'semana' ? finSemanaStr() : tipoPlazo === 'mes' ? finMesStr() : $('#dt-fecha').value;
       const d = {
-        asignada_a_id: $('#dt-para').value, titulo: $('#dt-titulo').value.trim(), descripcion: $('#dt-desc').value.trim(),
+        asignada_a_id: varios ? '' : $('#dt-para').value, titulo: $('#dt-titulo').value.trim(), descripcion: $('#dt-desc').value.trim(),
         plazo, tipo_plazo: tipoPlazo, prioridad: $('#dt-alta').checked ? 'alta' : 'normal',
       };
+      if (varios) {
+        d.asignada_a_ids = $$('#dt-varios-lista input:checked').map((c) => c.value);
+        d.asignada_a_id = d.asignada_a_ids[0] || '';
+        if (!d.asignada_a_ids.length) { aviso('Marca al menos a una persona.', true); return; }
+      }
       if (!d.asignada_a_id) { aviso('No tienes a quién asignar tareas.', true); return; }
       if (d.titulo.length < 3) { aviso('Escribe la tarea (al menos 3 caracteres).', true); $('#dt-titulo').focus(); return; }
       if (!plazo) { aviso('Elige la fecha límite.', true); $('#dt-fecha').focus(); return; }
@@ -1138,8 +1167,10 @@
         else await api('crearTarea', d);
         fondo.hidden = true;
         const m = S.equipo.find((x) => x.id === d.asignada_a_id);
-        const propia = d.asignada_a_id === S.usuario.id;
-        aviso(t ? 'Tarea actualizada.' : propia ? 'Tarea agregada a tus tareas.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
+        const n = (d.asignada_a_ids || [d.asignada_a_id]).length;
+        const propia = n === 1 && d.asignada_a_id === S.usuario.id;
+        aviso(t ? 'Tarea actualizada.' : n > 1 ? `Tarea asignada a ${n} personas (una para cada una).` : propia ? 'Tarea agregada a tus tareas.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
+        if ((d.asignada_a_ids || []).includes(S.usuario.id)) cargarMisTareas();
         S.vistaTareas = propia ? 'mias' : 'asignadas';
         if (propia) cargarMisTareas();
         if (S.pagina === 'tareas') cargarTareas(); else location.hash = 'tareas';
