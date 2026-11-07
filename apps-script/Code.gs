@@ -94,6 +94,7 @@ const ZONA = 'America/Lima';
 /** Crea las hojas con sus encabezados si no existen. Se puede ejecutar varias veces. */
 function configurar() {
   const ss = libro_();
+  if (ss.getSpreadsheetTimeZone() !== ZONA) ss.setSpreadsheetTimeZone(ZONA); // hora de Lima
   const crear = (nombre, cols, ejemplo) => {
     let h = ss.getSheetByName(nombre);
     if (!h) h = ss.insertSheet(nombre);
@@ -1063,7 +1064,7 @@ function leerRegistros_() { return filasRegistros_().filas; }
 
 function limpiarRegistro_(r) {
   const fecha = r.fecha instanceof Date
-    ? Utilities.formatDate(r.fecha, ZONA, 'yyyy-MM-dd') : String(r.fecha);
+    ? Utilities.formatDate(r.fecha, zonaHoja_(), 'yyyy-MM-dd') : String(r.fecha);
   return {
     id: String(r.id), creado: String(r.creado), miembro_id: String(r.miembro_id),
     miembro: String(r.miembro), area: String(r.area), fecha,
@@ -1076,7 +1077,7 @@ function limpiarRegistro_(r) {
 
 function limpiarTarea_(r) {
   const plazo = r.plazo instanceof Date
-    ? Utilities.formatDate(r.plazo, ZONA, 'yyyy-MM-dd') : String(r.plazo || '').trim();
+    ? Utilities.formatDate(r.plazo, zonaHoja_(), 'yyyy-MM-dd') : String(r.plazo || '').trim();
   return {
     id: String(r.id), creada: String(r.creada), asignada_por_id: String(r.asignada_por_id),
     asignada_por: String(r.asignada_por), asignada_a_id: String(r.asignada_a_id),
@@ -1101,9 +1102,22 @@ function leerTareas_() { return filasTareas_().filas; }
 /* Utilidades                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Zona horaria del Sheet. Cuando Sheets convierte "17:00" o "2026-11-06" en una hora o fecha, hay que
+ * leerla con SU zona horaria: con otra, las horas sueltas (que Sheets guarda con fecha de 1899) se
+ * corren horas y minutos (p. ej. 17:00 se leía como 19:51).
+ */
+let zonaHojaCache_ = null;
+function zonaHoja_() {
+  if (!zonaHojaCache_) {
+    try { zonaHojaCache_ = libro_().getSpreadsheetTimeZone() || ZONA; } catch (e) { zonaHojaCache_ = ZONA; }
+  }
+  return zonaHojaCache_;
+}
+
 /** Sheets puede convertir "08:30" en una hora; la devolvemos siempre como texto HH:mm. */
 function hora_(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, ZONA, 'HH:mm');
+  if (v instanceof Date) return Utilities.formatDate(v, zonaHoja_(), 'HH:mm');
   return String(v || '').trim();
 }
 
