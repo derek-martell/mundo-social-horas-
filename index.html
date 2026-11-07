@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="styles.css?v=202611062353">
+  <link rel="stylesheet" href="styles.css?v=202611070015">
 </head>
 <body>
   <div id="banner-demo" class="banner-demo" hidden>
@@ -72,6 +72,9 @@
         </a>
         <a href="#planilla" data-pagina-link="planilla" data-solo-revisor hidden title="Planilla">
           <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.5 0 4.5 1.5 4.5 4"/></svg><span>Planilla</span>
+        </a>
+        <a href="#actividad" data-pagina-link="actividad" data-solo-actividad hidden title="Actividad">
+          <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Actividad</span><b id="cuenta-inactivos" class="insignia" hidden></b>
         </a>
         <a href="#totales" data-pagina-link="totales" title="Totales">
           <svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span>Totales</span>
@@ -203,6 +206,27 @@
           </div>
         </section>
 
+        <!-- Actividad (RRHH) -->
+        <section id="pagina-actividad" class="pagina panel relleno" hidden>
+          <div class="cabecera">
+            <div>
+              <h2>Actividad de las áreas</h2>
+              <p class="sutil" id="act-alcance"></p>
+            </div>
+            <div class="filtros-linea">
+              <select id="act-area" class="selector" aria-label="Área"></select>
+              <label class="en-linea"><input id="act-alertas" type="checkbox"> Solo con alerta</label>
+            </div>
+          </div>
+          <div id="act-cifras" class="cifras"></div>
+          <div class="tabla-envoltura">
+            <table class="tabla">
+              <thead><tr><th>Persona</th><th>Última vez que registró</th><th class="num">Horas 7 días</th><th class="num">Horas del mes</th><th class="num">Tareas</th><th>Estado</th><th></th></tr></thead>
+              <tbody id="act-tabla"></tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Totales -->
         <section id="pagina-totales" class="pagina panel relleno" hidden>
           <div class="cabecera">
@@ -291,6 +315,10 @@
       <input id="dp-email" class="selector" type="email" maxlength="120" autocomplete="off">
       <label class="campo-etiqueta" for="dp-area">Área</label>
       <select id="dp-area" class="selector"></select>
+      <div id="dp-supervisa-caja" hidden>
+        <span class="campo-etiqueta">Áreas que supervisa (RRHH)</span>
+        <div id="dp-supervisa" class="casillas"></div>
+      </div>
       <div id="dp-solo-admin" hidden>
         <label class="campo-etiqueta" for="dp-rol">Rol</label>
         <select id="dp-rol" class="selector">
@@ -321,10 +349,25 @@
       </div>
     </div>
   </div>
+  <div id="dialogo-seguimiento" class="dialogo-fondo" hidden>
+    <form id="ds-form" class="dialogo ancho" role="dialog" aria-modal="true" aria-labelledby="ds-titulo">
+      <h2 id="ds-titulo">Seguimiento</h2>
+      <p id="ds-sub" class="sutil"></p>
+      <ul id="ds-notas" class="notas-lista"></ul>
+      <div id="ds-nueva">
+        <label class="campo-etiqueta" for="ds-texto">Nueva nota</label>
+        <textarea id="ds-texto" class="selector" rows="3" maxlength="1000" placeholder="Ej.: Le escribí por WhatsApp el 7/11; retoma la próxima semana."></textarea>
+      </div>
+      <div class="dialogo-pie">
+        <button type="button" class="btn texto" id="ds-cerrar">Cerrar</button>
+        <button type="submit" class="btn primario" id="ds-ok">Guardar nota</button>
+      </div>
+    </form>
+  </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js?v=202611062353"></script>
-  <script src="demo.js?v=202611062353"></script>
-  <script src="app.js?v=202611062353"></script>
+  <script src="config.js?v=202611070015"></script>
+  <script src="demo.js?v=202611070015"></script>
+  <script src="app.js?v=202611070015"></script>
 </body>
 </html>

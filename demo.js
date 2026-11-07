@@ -16,16 +16,21 @@
     { id: 'm06', nombre: 'Jorge Mendoza', email: 'jorge@ejemplo.org', activo: true, area: 'Redes sociales', rol: 'miembro', coordina: [] },
     { id: 'm07', nombre: 'Rosa Paredes', email: 'rosa@ejemplo.org', activo: true, area: 'Diseño', rol: 'coordinador', coordina: ['Diseño'] },
     { id: 'm08', nombre: 'Luis Castro', email: 'luis@ejemplo.org', activo: true, area: 'Diseño', rol: 'miembro', coordina: [] },
+    { id: 'm11', nombre: 'Marta Díaz', email: 'marta@ejemplo.org', activo: true, area: 'Recursos Humanos', rol: 'coordinador', coordina: ['Recursos Humanos'] },
+    { id: 'm12', nombre: 'Iván Soto', email: 'ivan@ejemplo.org', activo: true, area: 'Recursos Humanos', rol: 'miembro', coordina: [], supervisa: ['Redacción', 'Redes sociales'] },
     { id: 'm10', nombre: 'Pedro Ríos', email: 'pedro@ejemplo.org', activo: false, area: 'Redacción', rol: 'miembro', coordina: [] }, // ya no participa
     { id: 'm09', nombre: 'Sofía Vargas', email: 'sofia@ejemplo.org', activo: true, area: 'Investigación', rol: 'miembro', coordina: [] }, // área sin coordinador
   ];
-  const CODIGOS = { 'DEMO-ADMIN': 'm01', 'DEMO-COORD': 'm02', 'DEMO-MIEMBRO': 'm03' };
+  const CODIGOS = { 'DEMO-ADMIN': 'm01', 'DEMO-COORD': 'm02', 'DEMO-MIEMBRO': 'm03', 'DEMO-RRHH': 'm12', 'DEMO-DIR-RRHH': 'm11' };
+  const AREA_RRHH = 'Recursos Humanos';
+  MIEMBROS.forEach((m) => { if (!m.supervisa) m.supervisa = []; });
   const AREAS = Array.from(new Set(MIEMBROS.map((m) => m.area))).sort((a, b) => a.localeCompare(b));
 
   const TAREAS = {
     'Dirección': ['Reunión con coordinadores', 'Revisión del calendario editorial', 'Planificación del mes'],
     'Redacción': ['Nota sobre la inflación en Lima Metropolitana (dato del INEI)', 'Borrador: informalidad laboral juvenil',
       'Explicador del tipo de cambio y las intervenciones del BCRP', 'Nota sobre el PBI de setiembre', 'Corrección de estilo de 3 notas'],
+    'Recursos Humanos': ['Seguimiento de actividad de las áreas', 'Entrevistas a postulantes', 'Inducción de nuevos miembros'],
     'Redes sociales': ['Hilo sobre precios de alimentos', 'Programación de publicaciones de la semana', 'Video corto sobre el sol peruano'],
     'Diseño': ['Infografía de empleo formal', 'Gráficos del artículo de exportaciones', 'Plantillas para redes'],
     'Investigación': ['Procesamiento de la ENAHO: pobreza por región', 'Búsqueda de series del BCRP', 'Entrevista a un economista'],
@@ -91,6 +96,23 @@
     }
   })();
 
+  // Casos para el tracker de RRHH: Andrés sin horas hace 9 días (inactivo), Jorge hace 5 (en riesgo).
+  (function casosDeActividad() {
+    const [y, mo, d] = hoyStr().split('-').map(Number);
+    const corte = (n) => ymd(new Date(y, mo - 1, d - n));
+    for (let i = registros.length - 1; i >= 0; i--) {
+      const r = registros[i];
+      if ((r.miembro_id === 'm04' && r.fecha > corte(9)) || (r.miembro_id === 'm06' && r.fecha > corte(5))) registros.splice(i, 1);
+    }
+    registros.push({ id: uuid(), creado: corte(5) + 'T15:00', miembro_id: 'm06', miembro: 'Jorge Mendoza', area: 'Redes sociales',
+      fecha: corte(5), inicio: '15:00', fin: '17:00', horas: 2, descripcion: 'Programación de publicaciones de la semana', enlace: '',
+      estado: 'aprobado', revisado_por: 'Camila Torres', revisado_en: '', comentario: '' });
+  })();
+
+  // ---------- Notas de seguimiento de ejemplo ----------
+  const notas = [{ id: uuid(), fecha: new Date(Date.now() - 2 * 864e5).toISOString(), autor_id: 'm12', autor: 'Iván Soto',
+    persona_id: 'm04', persona: 'Andrés Huamán', area: 'Redacción', nota: 'Le escribí por WhatsApp; dice que está en exámenes y retoma la próxima semana.' }];
+
   // ---------- Tareas de ejemplo ----------
   const tareas = [];
   (function sembrarTareas() {
@@ -131,12 +153,19 @@
   class ErrorDemo extends Error {}
 
   // ---------- Planilla ----------
+  const esDirectorRRHH = (u) => u.rol === 'coordinador' && u.coordina.map(norm).includes(norm(AREA_RRHH));
+  function areasActividad(u) {
+    if (u.activo === false) return [];
+    if (u.rol === 'admin' || esDirectorRRHH(u)) return AREAS.slice();
+    return Array.from(new Set(u.supervisa || []));
+  }
   function puedeGestionar(u, m) {
     if (u.rol === 'admin') return true;
     return u.rol === 'coordinador' && m.rol === 'miembro' && u.coordina.map(norm).includes(norm(m.area));
   }
   const persona = (u, m) => ({ id: m.id, nombre: m.nombre, email: m.email || '', area: m.area, rol: m.rol,
-    coordina: m.coordina.slice(), activo: m.activo !== false, tiene_codigo: true, editable: puedeGestionar(u, m) });
+    coordina: m.coordina.slice(), supervisa: (m.supervisa || []).slice(), activo: m.activo !== false, tiene_codigo: true,
+    editable: puedeGestionar(u, m), puede_supervisa: u.rol === 'admin' || (esDirectorRRHH(u) && norm(m.area) === norm(AREA_RRHH)) });
   function nuevoCodigo() {
     let c;
     do { c = String(1 + Math.floor(Math.random() * 9)); for (let k = 0; k < 7; k++) c += Math.floor(Math.random() * 10); } while (CODIGOS[c]);
@@ -205,7 +234,8 @@
     (!d.mes || r.fecha.slice(0, 7) === d.mes);
 
   const acciones = {
-    login: (u) => ({ usuario: { id: u.id, nombre: u.nombre, area: u.area, rol: u.rol, coordina: u.coordina }, areas: AREAS }),
+    login: (u) => ({ usuario: { id: u.id, nombre: u.nombre, area: u.area, rol: u.rol, coordina: u.coordina,
+      supervisa: (u.supervisa || []).slice(), ve_actividad: areasActividad(u).length > 0 }, areas: AREAS }),
     registrar(u, d) {
       const c = validar(d); cruce(u.id, c);
       const r = Object.assign({ id: uuid(), creado: new Date().toISOString(), miembro_id: u.id, miembro: u.nombre,
@@ -281,6 +311,48 @@
       tareas.splice(i, 1);
       return { eliminada: d.id };
     },
+    actividad(u) {
+      const areas = areasActividad(u);
+      if (!areas.length) throw new ErrorDemo('No tienes áreas para supervisar.');
+      const hoy = hoyStr();
+      const [y, mo, d] = hoy.split('-').map(Number);
+      const hace7 = ymd(new Date(y, mo - 1, d - 6));
+      const dias = (f) => Math.round((new Date(y, mo - 1, d) - new Date(...f.split('-').map((x, i) => (i === 1 ? x - 1 : +x)))) / 864e5);
+      const orden = { inactivo: 0, sin_registros: 0, en_riesgo: 1, activo: 2 };
+      const personas = MIEMBROS.filter((m) => m.activo !== false && areas.map(norm).includes(norm(m.area))).map((m) => {
+        const rs = registros.filter((r) => r.miembro_id === m.id && r.estado !== 'rechazado');
+        const ultima = rs.reduce((a, r) => (r.fecha > a ? r.fecha : a), '');
+        const ds = ultima ? dias(ultima) : null;
+        const abiertas = tareas.filter((t) => t.asignada_a_id === m.id && (t.estado === 'pendiente' || t.estado === 'en_progreso'));
+        const suyas = notas.filter((n) => n.persona_id === m.id).sort((a, b) => b.fecha.localeCompare(a.fecha));
+        return { id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, ultima_fecha: ultima, dias_sin_registrar: ds,
+          horas_7d: rs.filter((r) => r.fecha >= hace7).reduce((a, r) => a + r.horas, 0),
+          horas_mes: rs.filter((r) => r.fecha.slice(0, 7) === hoy.slice(0, 7)).reduce((a, r) => a + r.horas, 0),
+          tareas_abiertas: abiertas.length, tareas_vencidas: abiertas.filter((t) => t.plazo < hoy).length,
+          notas: suyas.length, ultima_nota: suyas.length ? suyas[0].nota : '',
+          estado: ds === null ? 'sin_registros' : ds >= 7 ? 'inactivo' : ds >= 4 ? 'en_riesgo' : 'activo' };
+      }).sort((a, b) => orden[a.estado] - orden[b.estado] || (b.dias_sin_registrar ?? 999) - (a.dias_sin_registrar ?? 999) || a.nombre.localeCompare(b.nombre));
+      return { areas, umbral: 7, aviso: 4, hoy, personas };
+    },
+    notasSeguimiento(u, d) {
+      const m = MIEMBROS.find((x) => x.id === d.persona_id);
+      if (!m) throw new ErrorDemo('Persona no encontrada.');
+      const puede = u.rol === 'admin' || areasActividad(u).map(norm).includes(norm(m.area)) ||
+        (u.rol === 'coordinador' && u.coordina.map(norm).includes(norm(m.area)));
+      if (!puede) throw new ErrorDemo('No puedes ver el seguimiento de esta persona.');
+      return { notas: notas.filter((n) => n.persona_id === m.id).sort((a, b) => b.fecha.localeCompare(a.fecha))
+        .map((n) => ({ id: n.id, fecha: n.fecha, autor: n.autor, nota: n.nota })) };
+    },
+    agregarNota(u, d) {
+      const m = MIEMBROS.find((x) => x.id === d.persona_id);
+      if (!m) throw new ErrorDemo('Persona no encontrada.');
+      if (!areasActividad(u).map(norm).includes(norm(m.area))) throw new ErrorDemo('No supervisas el área de esta persona.');
+      const texto = String(d.nota || '').trim();
+      if (texto.length < 3 || texto.length > 1000) throw new ErrorDemo('La nota debe tener entre 3 y 1000 caracteres.');
+      const n = { id: uuid(), fecha: new Date().toISOString(), autor_id: u.id, autor: u.nombre, persona_id: m.id, persona: m.nombre, area: m.area, nota: texto };
+      notas.push(n);
+      return { nota: { id: n.id, fecha: n.fecha, autor: n.autor, nota: n.nota } };
+    },
     planilla(u) {
       if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver la planilla.');
       const personas = MIEMBROS.filter((m) => u.rol === 'admin' || u.coordina.map(norm).includes(norm(m.area)))
@@ -301,11 +373,19 @@
     },
     actualizarPersona(u, d) {
       const m = MIEMBROS.find((x) => x.id === d.id);
+      const soloSupervisa = Object.keys(d).every((k) => ['id', 'codigo', 'supervisa'].includes(k));
+      const rrhhSobreRrhh = m && esDirectorRRHH(u) && norm(m.area) === norm(AREA_RRHH);
+      if (d.supervisa !== undefined && !(u.rol === 'admin' || rrhhSobreRrhh)) throw new ErrorDemo('Solo RRHH o el administrador asignan supervisión.');
+      if (m && rrhhSobreRrhh && soloSupervisa) {
+        m.supervisa = String(Array.isArray(d.supervisa) ? d.supervisa.join(',') : d.supervisa || '').split(',').map((x) => x.trim()).filter(Boolean);
+        return { persona: persona(u, m) };
+      }
       if (!m || !puedeGestionar(u, m)) throw new ErrorDemo('No puedes modificar a esta persona.');
       if (u.rol !== 'admin' && (d.rol !== undefined || d.coordina !== undefined)) throw new ErrorDemo('Solo el admin puede cambiar roles.');
       if (m.id === u.id && (d.activo === false || (d.rol && d.rol !== u.rol))) throw new ErrorDemo('No puedes desactivarte ni cambiar tu propio rol.');
       Object.assign(m, validarPersona(u, Object.assign({ nombre: m.nombre, email: m.email, area: m.area, rol: m.rol, coordina: m.coordina.join(', ') }, d), m));
       if (d.activo !== undefined) m.activo = !!d.activo;
+      if (d.supervisa !== undefined) m.supervisa = String(Array.isArray(d.supervisa) ? d.supervisa.join(',') : d.supervisa || '').split(',').map((x) => x.trim()).filter(Boolean);
       return { persona: persona(u, m) };
     },
     nuevoCodigo(u, d) {
@@ -366,6 +446,8 @@
     codigos: [
       { codigo: 'DEMO-MIEMBRO', etiqueta: 'Miembro', quien: 'Valeria Quispe · Redacción' },
       { codigo: 'DEMO-COORD', etiqueta: 'Coordinador', quien: 'Diego Salazar · coordina Redacción' },
+      { codigo: 'DEMO-RRHH', etiqueta: 'Supervisor de RRHH', quien: 'Iván Soto · supervisa Redacción y Redes sociales' },
+      { codigo: 'DEMO-DIR-RRHH', etiqueta: 'Directora de RRHH', quien: 'Marta Díaz · ve la actividad de todas las áreas' },
       { codigo: 'DEMO-ADMIN', etiqueta: 'Admin', quien: 'Lucía Ramos · aprueba a los coordinadores' },
     ],
     async llamar(accion, datos) {

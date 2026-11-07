@@ -3,13 +3,15 @@
  * Backend en Google Apps Script sobre un Google Sheet.
  *
  * Hojas que usa (las crea la función `configurar`):
- *   Miembros  : id | nombre | email | area | rol | coordina | codigo | activo
+ *   Miembros  : id | nombre | email | area | rol | coordina | codigo | activo | supervisa
  *   Registros : id | creado | miembro_id | miembro | area | fecha | inicio | fin | horas |
  *               descripcion | enlace | estado | revisado_por | revisado_en | comentario | tarea_id
  *   Tareas    : id | creada | asignada_por_id | asignada_por | asignada_a_id | asignada_a | area |
  *               titulo | descripcion | plazo | tipo_plazo | prioridad | estado | completada_en | nota
  *               (metas con plazo; plazo 'yyyy-MM-dd'; tipo_plazo semana|mes|fecha; prioridad
  *               alta|normal; estado pendiente|en_progreso|hecha|cancelada)
+ *   Seguimiento : id | fecha | autor_id | autor | persona_id | persona | area | nota
+ *               (notas de seguimiento de RRHH sobre una persona; fecha: texto ISO)
  *
  * Cada persona pertenece a un área (Redacción, Redes sociales, Diseño…).
  *
@@ -37,6 +39,25 @@
  * no cambia roles ni gestiona a otros coordinadores; el admin no puede desactivarse ni cambiarse
  * el rol a sí mismo. La planilla nunca devuelve los códigos de acceso.
  *
+ * Supervisión de actividad (RRHH): la columna `supervisa` de Miembros es texto con áreas separadas
+ * por comas. Quien tiene áreas por supervisar ve el tracker de actividad de las personas ACTIVAS de
+ * esas áreas (cualquier rol, sin códigos) para detectar inactivos, y deja notas de seguimiento.
+ *   - Áreas que ve cada quien (`areasActividad_`): el admin y los directores de RRHH (coordinador cuyo
+ *     `coordina` incluye "Recursos Humanos") ven todas; el resto, las de su `supervisa`. Las personas
+ *     inactivas no ven ninguna. `ve_actividad` (en el perfil del login) = tiene al menos un área.
+ *   - `actividad` { umbral? } -> { areas, umbral: 7, aviso: 4, hoy, personas }. Cada persona trae
+ *     ultima_fecha, dias_sin_registrar (null si nunca), horas_7d, horas_mes (no rechazadas),
+ *     tareas_abiertas, tareas_vencidas, notas, ultima_nota y estado: sin_registros | inactivo
+ *     (días >= umbral) | en_riesgo (días >= aviso) | activo. Orden: inactivos y sin registros,
+ *     en riesgo, activos; en cada grupo por días sin registrar desc y nombre.
+ *   - `notasSeguimiento` { persona_id } -> { notas }: las ve quien supervisa el área de esa persona,
+ *     el admin y el coordinador de esa área.
+ *   - `agregarNota` { persona_id, nota } -> { nota }: solo quien supervisa el área (admin, directores
+ *     de RRHH o supervisores de esa área). Nota de 3 a 1000 caracteres.
+ *   - Asignar `supervisa` (`actualizarPersona`, y `agregarPersona`): el admin, a cualquiera; un director
+ *     de RRHH, solo a personas del área Recursos Humanos (aunque sean coordinadoras: en ese caso puede
+ *     editar únicamente el campo `supervisa`). Cualquier otro coordinador recibe un error.
+ *
  * Todas las peticiones llegan por POST con un cuerpo JSON: { accion, codigo, ... }.
  * El frontend envía el cuerpo como text/plain para evitar el preflight CORS.
  */
@@ -44,17 +65,23 @@
 const HOJA_MIEMBROS = 'Miembros';
 const HOJA_REGISTROS = 'Registros';
 const HOJA_TAREAS = 'Tareas';
+const HOJA_SEGUIMIENTO = 'Seguimiento';
+const AREA_RRHH = 'Recursos Humanos';
 
-const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo'];
+const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo', 'supervisa'];
+const COLS_MIEMBROS_ANTIGUAS = COLS_MIEMBROS.slice(0, 8); // antes de agregar `supervisa`
 const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'area', 'fecha', 'inicio', 'fin', 'horas',
   'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario', 'tarea_id'];
 const COLS_TAREAS = ['id', 'creada', 'asignada_por_id', 'asignada_por', 'asignada_a_id', 'asignada_a', 'area',
   'titulo', 'descripcion', 'plazo', 'tipo_plazo', 'prioridad', 'estado', 'completada_en', 'nota'];
+const COLS_SEGUIMIENTO = ['id', 'fecha', 'autor_id', 'autor', 'persona_id', 'persona', 'area', 'nota'];
 
 const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
 const ESTADOS_TAREA = ['pendiente', 'en_progreso', 'hecha', 'cancelada'];
 const TIPOS_PLAZO = ['semana', 'mes', 'fecha'];
 const PRIORIDADES = ['alta', 'normal'];
+const UMBRAL_INACTIVO = 7;             // días sin registrar para considerar inactiva a una persona
+const UMBRAL_AVISO = 4;                // días sin registrar para marcarla en riesgo
 const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el Web App
 const ZONA = 'America/Lima';
 
@@ -82,13 +109,13 @@ function configurar() {
   // se reconoce por los encabezados y se renombra a "Miembros" en vez de crear una hoja vacía.
   if (!ss.getSheetByName(HOJA_MIEMBROS)) {
     const importada = ss.getSheets().find(h => h.getLastRow() > 0 &&
-      h.getRange(1, 1, 1, COLS_MIEMBROS.length).getValues()[0].map(normalizar_).join('|') === COLS_MIEMBROS.join('|'));
+      h.getRange(1, 1, 1, COLS_MIEMBROS_ANTIGUAS.length).getValues()[0].map(normalizar_).join('|') === COLS_MIEMBROS_ANTIGUAS.join('|'));
     if (importada) importada.setName(HOJA_MIEMBROS).setFrozenRows(1);
   }
   crear(HOJA_MIEMBROS, COLS_MIEMBROS, [
-    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí'],
-    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí'],
-    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí'],
+    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí', ''],
+    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí', ''],
+    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí', ''],
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
   reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
@@ -100,7 +127,16 @@ function configurar() {
   }
   const tar = crear(HOJA_TAREAS, COLS_TAREAS);
   tar.getRange('J:J').setNumberFormat('@'); // plazo como texto
-  ss.getSheetByName(HOJA_MIEMBROS).getRange('G:G').setNumberFormat('@'); // código como texto
+  const miembros = ss.getSheetByName(HOJA_MIEMBROS);
+  miembros.getRange('G:G').setNumberFormat('@'); // código como texto
+  // Hojas ya existentes: agrega el encabezado de supervisa si falta.
+  const colSup = COLS_MIEMBROS.indexOf('supervisa') + 1;
+  if (miembros.getLastRow() > 0 && !String(miembros.getRange(1, colSup).getValues()[0][0] || '').trim()) {
+    miembros.getRange(1, colSup).setValue('supervisa');
+    miembros.getRange(1, colSup).setFontWeight('bold');
+  }
+  const seg = crear(HOJA_SEGUIMIENTO, COLS_SEGUIMIENTO);
+  seg.getRange('B:B').setNumberFormat('@'); // fecha ISO como texto
   generarCodigos();
   console.log('Listo. Hojas: ' + ss.getSheets().map(h => h.getName()).join(', ') + '.');
 }
@@ -173,7 +209,7 @@ function doPost(e) {
     const ctx = contexto_();
     const usuario = autenticar_(datos.codigo, ctx);
     const acciones = {
-      login: () => ({ usuario: perfilPublico_(usuario), areas: ctx.areas }),
+      login: () => ({ usuario: perfilPublico_(usuario, ctx), areas: ctx.areas }),
       registrar: () => registrar_(usuario, datos),
       editar: () => editar_(usuario, datos),
       misHoras: () => ({ registros: registrosDe_(usuario, datos) }),
@@ -191,6 +227,9 @@ function doPost(e) {
       agregarPersona: () => agregarPersona_(usuario, datos),
       actualizarPersona: () => actualizarPersona_(usuario, datos),
       nuevoCodigo: () => regenerarCodigo_(usuario, datos),
+      actividad: () => actividad_(usuario, datos, ctx),
+      notasSeguimiento: () => notasSeguimiento_(usuario, datos, ctx),
+      agregarNota: () => agregarNota_(usuario, datos, ctx),
     };
     const fn = acciones[datos.accion];
     if (!fn) throw new ErrorApp('Acción desconocida.');
@@ -244,12 +283,41 @@ function autenticar_(codigo, ctx) {
   return m;
 }
 
-function perfilPublico_(m) {
-  return { id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, coordina: m.coordinaNombres };
+function perfilPublico_(m, ctx) {
+  return {
+    id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, coordina: m.coordinaNombres,
+    supervisa: m.supervisaNombres, ve_actividad: areasActividad_(m, ctx).length > 0,
+  };
 }
 
 function esAdmin_(u) { return u.rol === 'admin'; }
 function esRevisor_(u) { return u.rol === 'admin' || u.rol === 'coordinador'; }
+
+/** Director de RRHH: coordinador cuyas áreas incluyen Recursos Humanos. */
+function esDirectorRRHH_(u) {
+  return u.rol === 'coordinador' && u.coordina.indexOf(normalizar_(AREA_RRHH)) !== -1;
+}
+
+/**
+ * Áreas cuya actividad puede ver `u`: el admin y los directores de RRHH, todas; el resto, las de su
+ * `supervisa` (sin duplicados). Una persona inactiva no ve ninguna.
+ */
+function areasActividad_(u, ctx) {
+  if (!u.activo) return [];
+  if (esAdmin_(u) || esDirectorRRHH_(u)) return ctx.areas.slice();
+  const vistas = {}, areas = [];
+  u.supervisaNombres.forEach(a => {
+    const k = normalizar_(a);
+    if (!vistas[k]) { vistas[k] = true; areas.push(a); }
+  });
+  return areas;
+}
+
+/** ¿Supervisa `u` el área `area` (comparación normalizada)? */
+function supervisaArea_(u, area, ctx) {
+  const a = normalizar_(area);
+  return areasActividad_(u, ctx).some(x => normalizar_(x) === a);
+}
 
 /**
  * ¿Puede `u` revisar las horas de la persona `miembroId`, registradas en el área `area`?
@@ -615,12 +683,17 @@ function puedeGestionar_(u, p) {
   return false;
 }
 
+/** ¿Puede `u` asignar `supervisa` a `p`? El admin, a todos; un director de RRHH, a las personas de RRHH. */
+function puedeAsignarSupervisa_(u, p) {
+  return esAdmin_(u) || (esDirectorRRHH_(u) && normalizar_(p.area) === normalizar_(AREA_RRHH));
+}
+
 /** Persona tal como la ve la planilla. NUNCA incluye el código de acceso. */
 function personaPlanilla_(m, u) {
   return {
     id: m.id, nombre: m.nombre, email: m.email, area: m.area, rol: m.rol,
-    coordina: m.coordinaNombres, activo: m.activo, tiene_codigo: !!m.codigo,
-    editable: puedeGestionar_(u, m),
+    coordina: m.coordinaNombres, supervisa: m.supervisaNombres, activo: m.activo, tiene_codigo: !!m.codigo,
+    editable: puedeGestionar_(u, m), supervisa_editable: puedeAsignarSupervisa_(u, m),
   };
 }
 
@@ -698,6 +771,9 @@ function exigirRevisor_(u) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para gestionar la planilla.');
 }
 
+const MSG_SUPERVISION = 'Solo RRHH o el administrador asignan supervisión.';
+const MSG_SUPERVISION_RRHH = 'RRHH solo asigna supervisión a personas del área Recursos Humanos.';
+
 /** Agrega una persona con un código de acceso nuevo, que se devuelve esta única vez. */
 function agregarPersona_(u, d) {
   exigirRevisor_(u);
@@ -706,7 +782,12 @@ function agregarPersona_(u, d) {
     const nombre = validarNombrePersona_(d.nombre);
     const email = validarEmailPersona_(d.email, miembros, null);
     const area = validarAreaPersona_(u, d.area);
-    let rol = 'miembro', coordina = '';
+    let rol = 'miembro', coordina = '', supervisa = '';
+    if (d.supervisa !== undefined && d.supervisa !== null && textoCoordina_(d.supervisa)) {
+      if (!esAdmin_(u) && !esDirectorRRHH_(u)) throw new ErrorApp(MSG_SUPERVISION);
+      if (!puedeAsignarSupervisa_(u, { area })) throw new ErrorApp(MSG_SUPERVISION_RRHH);
+      supervisa = textoCoordina_(d.supervisa);
+    }
     if (esAdmin_(u)) {
       if (d.rol !== undefined && d.rol !== null && d.rol !== '') rol = validarRolPersona_(d.rol);
       if (rol === 'coordinador') coordina = textoCoordina_(d.coordina);
@@ -717,20 +798,20 @@ function agregarPersona_(u, d) {
     const usados = {};
     miembros.forEach(m => { usados[m.codigo] = true; });
     const codigo = nuevoCodigo_(usados);
-    const fila = { id, nombre, email, area, rol, coordina, codigo, activo: 'sí' };
+    const fila = { id, nombre, email, area, rol, coordina, codigo, activo: 'sí', supervisa };
     hoja_(HOJA_MIEMBROS).appendRow(COLS_MIEMBROS.map(col => seguro_(fila[col])));
     const persona = leerMiembros_().find(m => m.id === id);
     return { persona: personaPlanilla_(persona, u), codigo };
   });
 }
 
-/** Busca la fila de una persona y verifica que `u` pueda gestionarla. */
-function personaGestionable_(u, id) {
+/** Busca la fila de una persona y verifica que `u` pueda gestionarla (o cumpla `alternativa`). */
+function personaGestionable_(u, id, alternativa) {
   const tabla = leerTabla_(HOJA_MIEMBROS, COLS_MIEMBROS);
   const i = tabla.filas.findIndex(f => String(f.id).trim() === id);
   const persona = i === -1 ? null : leerMiembros_().find(m => m.id === id);
   if (!persona) throw new ErrorApp('Persona no encontrada.');
-  if (!puedeGestionar_(u, persona)) {
+  if (!puedeGestionar_(u, persona) && !(alternativa && alternativa(persona))) {
     throw new ErrorApp(u.rol === 'coordinador'
       ? 'Solo puedes gestionar a los miembros de las áreas que coordinas.'
       : 'No tienes permiso para gestionar la planilla.');
@@ -743,12 +824,26 @@ function actualizarPersona_(u, d) {
   exigirRevisor_(u);
   const id = String(d.id || '').trim();
   return conBloqueo_(() => {
-    const { hoja, fila, i, persona } = personaGestionable_(u, id);
     const hay = k => d[k] !== undefined;
+    const quiereSup = hay('supervisa');
+    if (quiereSup && !esAdmin_(u) && !esDirectorRRHH_(u)) throw new ErrorApp(MSG_SUPERVISION);
+    // Un director de RRHH también puede tocar `supervisa` de una persona de RRHH que no gestiona
+    // (otra directora), pero solo ese campo.
+    const { hoja, fila, i, persona } = personaGestionable_(u, id, p => quiereSup && puedeAsignarSupervisa_(u, p));
+    if (quiereSup && !puedeAsignarSupervisa_(u, persona)) throw new ErrorApp(MSG_SUPERVISION_RRHH);
+    if (!puedeGestionar_(u, persona)) {
+      const otros = ['nombre', 'email', 'area', 'activo', 'rol', 'coordina'].some(hay);
+      if (otros) throw new ErrorApp('De esa persona solo puedes cambiar la supervisión.');
+      const solo = Object.assign({}, fila, { supervisa: textoCoordina_(d.supervisa) });
+      hoja.getRange(i + 2, 1, 1, COLS_MIEMBROS.length)
+        .setValues([COLS_MIEMBROS.map(col => seguro_(solo[col]))]);
+      return { persona: personaPlanilla_(leerMiembros_().find(m => m.id === id), u) };
+    }
     if (u.rol === 'coordinador' && (hay('rol') || hay('coordina'))) {
       throw new ErrorApp('Solo el administrador puede cambiar el rol o las áreas que coordina.');
     }
     const cambios = {};
+    if (quiereSup) cambios.supervisa = textoCoordina_(d.supervisa);
     if (hay('nombre')) cambios.nombre = validarNombrePersona_(d.nombre);
     if (hay('email')) cambios.email = validarEmailPersona_(d.email, leerMiembros_(), id);
     if (hay('area')) cambios.area = validarAreaPersona_(u, d.area);
@@ -799,6 +894,121 @@ function nuevoCodigo_(usados) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Supervisión de actividad (RRHH)                                     */
+/* ------------------------------------------------------------------ */
+
+/** Suma `n` días a una fecha 'yyyy-MM-dd'. */
+function sumarDias_(fecha, n) {
+  const p = fecha.split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10);
+}
+
+/** Días enteros entre dos fechas 'yyyy-MM-dd' (b - a). */
+function diasEntre_(a, b) {
+  const f = s => { const p = s.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]); };
+  return Math.round((f(b) - f(a)) / 86400000);
+}
+
+/** Notas de seguimiento, de la más antigua a la más reciente. La hoja puede no existir aún. */
+function leerSeguimiento_() {
+  const h = libro_().getSheetByName(HOJA_SEGUIMIENTO);
+  if (!h || h.getLastRow() < 2) return [];
+  const vals = h.getRange(2, 1, h.getLastRow() - 1, COLS_SEGUIMIENTO.length).getValues();
+  return vals.map(v => Object.fromEntries(COLS_SEGUIMIENTO.map((c, i) => [c, v[i]])))
+    .filter(f => String(f.id).trim())
+    .map(f => ({
+      id: String(f.id), fecha: f.fecha instanceof Date ? f.fecha.toISOString() : String(f.fecha),
+      autor_id: String(f.autor_id), autor: String(f.autor), persona_id: String(f.persona_id),
+      persona: String(f.persona), area: String(f.area), nota: String(f.nota),
+    }));
+}
+
+function notaPublica_(n) { return { id: n.id, fecha: n.fecha, autor: n.autor, nota: n.nota }; }
+
+/** Más reciente primero (a igual fecha, la escrita después). */
+function notasRecientes_(notas) {
+  return notas.map((n, i) => ({ n, i }))
+    .sort((a, b) => b.n.fecha.localeCompare(a.n.fecha) || b.i - a.i).map(x => x.n);
+}
+
+/** Tracker: actividad de las personas activas de las áreas que `u` puede ver. */
+function actividad_(u, d, ctx) {
+  const areas = areasActividad_(u, ctx);
+  if (!areas.length) throw new ErrorApp('No tienes áreas para supervisar.');
+  const enAreas = {};
+  areas.forEach(a => { enAreas[normalizar_(a)] = true; });
+  let umbral = Math.floor(Number(d.umbral));
+  if (!(umbral >= 1 && umbral <= 365)) umbral = UMBRAL_INACTIVO;
+  const aviso = Math.min(UMBRAL_AVISO, Math.max(1, umbral - 1));
+
+  const hoy = Utilities.formatDate(new Date(), ZONA, 'yyyy-MM-dd');
+  const desde7 = sumarDias_(hoy, -6), mes = hoy.slice(0, 7);
+  const act = {};
+  leerRegistros_().filter(r => r.estado !== 'rechazado').forEach(r => {
+    const a = act[r.miembro_id] || (act[r.miembro_id] = { ultima: '', h7: 0, hMes: 0 });
+    if (r.fecha > a.ultima) a.ultima = r.fecha;
+    if (r.fecha >= desde7 && r.fecha <= hoy) a.h7 += r.horas;
+    if (r.fecha.slice(0, 7) === mes) a.hMes += r.horas;
+  });
+  const tareas = {};
+  leerTareas_().filter(t => t.estado === 'pendiente' || t.estado === 'en_progreso').forEach(t => {
+    const x = tareas[t.asignada_a_id] || (tareas[t.asignada_a_id] = { abiertas: 0, vencidas: 0 });
+    x.abiertas++;
+    if (t.plazo && t.plazo < hoy) x.vencidas++;
+  });
+  const notas = {};
+  notasRecientes_(leerSeguimiento_()).forEach(n => { (notas[n.persona_id] = notas[n.persona_id] || []).push(n); });
+
+  const redondo = x => Math.round(x * 100) / 100;
+  const rango = { inactivo: 0, sin_registros: 0, en_riesgo: 1, activo: 2 };
+  const personas = ctx.miembros.filter(m => m.activo && enAreas[normalizar_(m.area)]).map(m => {
+    const a = act[m.id] || { ultima: '', h7: 0, hMes: 0 };
+    const t = tareas[m.id] || { abiertas: 0, vencidas: 0 };
+    const ns = notas[m.id] || [];
+    const dias = a.ultima ? Math.max(0, diasEntre_(a.ultima, hoy)) : null;
+    const estado = dias === null ? 'sin_registros' : dias >= umbral ? 'inactivo' : dias >= aviso ? 'en_riesgo' : 'activo';
+    return {
+      id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, ultima_fecha: a.ultima, dias_sin_registrar: dias,
+      horas_7d: redondo(a.h7), horas_mes: redondo(a.hMes), tareas_abiertas: t.abiertas, tareas_vencidas: t.vencidas,
+      notas: ns.length, ultima_nota: ns.length ? ns[0].nota : '', estado,
+    };
+  });
+  const peso = p => p.dias_sin_registrar === null ? Infinity : p.dias_sin_registrar;
+  personas.sort((x, y) => rango[x.estado] - rango[y.estado] || peso(y) - peso(x) || x.nombre.localeCompare(y.nombre));
+  return { areas, umbral, aviso, hoy, personas };
+}
+
+/** Notas de seguimiento de una persona: quien supervisa su área, el admin o el coordinador del área. */
+function notasSeguimiento_(u, d, ctx) {
+  const p = ctx.porId[String(d.persona_id || '').trim()];
+  if (!p) throw new ErrorApp('Persona no encontrada.');
+  const a = normalizar_(p.area);
+  const coordinaArea = u.rol === 'coordinador' && u.coordina.indexOf(a) !== -1;
+  if (!esAdmin_(u) && !coordinaArea && !supervisaArea_(u, p.area, ctx)) {
+    throw new ErrorApp('No tienes permiso para ver el seguimiento de esa persona.');
+  }
+  const notas = notasRecientes_(leerSeguimiento_().filter(n => n.persona_id === p.id));
+  return { notas: notas.map(notaPublica_) };
+}
+
+function agregarNota_(u, d, ctx) {
+  const p = ctx.porId[String(d.persona_id || '').trim()];
+  if (!p) throw new ErrorApp('Persona no encontrada.');
+  if (!supervisaArea_(u, p.area, ctx)) throw new ErrorApp('No supervisas el área de esa persona.');
+  const nota = String(d.nota === undefined || d.nota === null ? '' : d.nota).trim();
+  if (nota.length < 3) throw new ErrorApp('Escribe la nota (mín. 3 caracteres).');
+  if (nota.length > 1000) throw new ErrorApp('La nota es muy larga (máx. 1000).');
+  return conBloqueo_(() => {
+    const fila = {
+      id: Utilities.getUuid(), fecha: new Date().toISOString(), autor_id: u.id, autor: u.nombre,
+      persona_id: p.id, persona: p.nombre, area: p.area, nota,
+    };
+    hoja_(HOJA_SEGUIMIENTO).appendRow(COLS_SEGUIMIENTO.map(col => seguro_(fila[col])));
+    return { nota: notaPublica_(fila) };
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Lectura del Sheet                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -836,6 +1046,8 @@ function leerMiembros_() {
       rol: ['admin', 'coordinador'].indexOf(normalizar_(m.rol)) !== -1 ? normalizar_(m.rol) : 'miembro',
       coordina: String(m.coordina || '').split(',').map(normalizar_).filter(Boolean),
       coordinaNombres: String(m.coordina || '').split(',').map(x => x.trim()).filter(Boolean),
+      supervisa: String(m.supervisa || '').split(',').map(normalizar_).filter(Boolean),
+      supervisaNombres: String(m.supervisa || '').split(',').map(x => x.trim()).filter(Boolean),
       codigo: String(m.codigo).trim(),
       activo: m.activo === true || /^(si|sí|true|1|x)$/i.test(String(m.activo).trim()),
     }));

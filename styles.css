@@ -484,6 +484,20 @@ tr.inactiva td { color: var(--sutil); }
 .estado.inactivo { background: var(--panel-2); color: var(--sutil); }
 #pla-buscar { min-width: 220px; }
 
+/* ---------- actividad (RRHH) ---------- */
+.estado.inactivo-act, .estado.sin_registros { background: var(--rech-suave); color: var(--rech); }
+.estado.en_riesgo { background: var(--pend-suave); color: var(--pend); }
+.estado.activo-act { background: var(--ok-suave); color: var(--ok); }
+tr.alerta-roja td:first-child { box-shadow: inset 4px 0 0 var(--rech); }
+tr.alerta-amarilla td:first-child { box-shadow: inset 4px 0 0 var(--pend); }
+.cifra.roja b { color: var(--rech); }
+.cifra.amarilla b { color: var(--pend); }
+.notas-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 280px; overflow-y: auto; }
+.notas-lista li { background: var(--panel-2); border-radius: 10px; padding: 8px 12px; font-size: 13px; overflow-wrap: anywhere; }
+.notas-lista small { display: block; color: var(--sutil); margin-bottom: 2px; }
+.notas-lista .vacio { background: none; color: var(--sutil); padding: 4px 0; }
+.ultima-nota { display: block; color: var(--sutil); font-size: 12px; margin-top: 2px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .nav a span { display: none; }

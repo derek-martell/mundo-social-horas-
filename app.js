@@ -155,6 +155,7 @@
   function salir() {
     try { sessionStorage.removeItem(CLAVE_SESION); } catch (e) { /* nada */ }
     $('#pla-area').innerHTML = ''; $('#pla-buscar').value = ''; $('#pla-inactivos').checked = false;
+    $('#act-area').innerHTML = ''; $('#act-alertas').checked = false; $('#cuenta-inactivos').hidden = true;
     S.codigo = ''; S.usuario = null; S.viendo = null; S.registros = []; S.equipo = []; S.misTareas = []; S.vistaTareas = 'mias';
     cerrarPopover();
     $('#menu-usuario').hidden = true;
@@ -205,6 +206,11 @@
       ? 'Todas las personas de Mundo Social. Puedes agregar, editar, cambiar roles y desactivar.'
       : 'Las personas de ' + (u.coordina.join(' y ') || 'tu área') + '. Agrega a quien entra y desactiva a quien se va; su historial de horas se conserva.';
     $('#dp-solo-admin').hidden = u.rol !== 'admin';
+    $$('[data-solo-actividad]').forEach((el) => { el.hidden = !u.ve_actividad; });
+    $('#act-alcance').textContent = u.rol === 'admin' || esDirectorRRHH()
+      ? 'Todas las áreas. Alerta roja: 7 días o más sin registrar horas; amarilla: 4 a 6 días.'
+      : 'Áreas que supervisas: ' + ((u.supervisa || []).join(', ') || '—') + '. Alerta roja: 7 días o más sin registrar horas; amarilla: 4 a 6 días.';
+    if (u.ve_actividad) contarInactivos();
     cargarMisTareas();
     irAPagina(paginaDeHash());
   }
@@ -215,11 +221,12 @@
 
   function paginaDeHash() {
     const h = location.hash.slice(1);
-    return ['calendario', 'tareas', 'por-aprobar', 'planilla', 'totales'].includes(h) ? h : 'calendario';
+    return ['calendario', 'tareas', 'por-aprobar', 'planilla', 'actividad', 'totales'].includes(h) ? h : 'calendario';
   }
 
   function irAPagina(p) {
     if ((p === 'por-aprobar' || p === 'planilla') && !esRevisor()) p = 'calendario';
+    if (p === 'actividad' && !S.usuario.ve_actividad) p = 'calendario';
     S.pagina = p;
     cerrarPopover();
     $$('.pagina').forEach((el) => { el.hidden = el.id !== 'pagina-' + p; });
@@ -233,6 +240,7 @@
     if (p === 'totales') cargarTotales();
     if (p === 'tareas') cargarTareas();
     if (p === 'planilla') cargarPlanilla();
+    if (p === 'actividad') cargarActividad();
   }
 
   /* =================================================================
@@ -1203,12 +1211,13 @@
         <td>${esc(p.nombre)}${p.id === S.usuario.id ? ' <span class="sub">(tú)</span>' : ''}</td>
         <td>${p.email ? esc(p.email) : '<span class="sutil">—</span>'}</td>
         <td><span class="punto" style="--c:${colorArea(p.area)}"></span> ${esc(p.area)}</td>
-        <td><span class="rol ${esc(p.rol)}">${p.rol === 'coordinador' ? 'Director' : ROLES[p.rol] || esc(p.rol)}</span>${p.rol === 'coordinador' && p.coordina.length ? `<span class="sub">${esc(p.coordina.join(', '))}</span>` : ''}</td>
+        <td><span class="rol ${esc(p.rol)}">${p.rol === 'coordinador' ? 'Director' : ROLES[p.rol] || esc(p.rol)}</span>${p.rol === 'coordinador' && p.coordina.length ? `<span class="sub">${esc(p.coordina.join(', '))}</span>` : ''}${(p.supervisa || []).length ? `<span class="sub">Supervisa: ${esc(p.supervisa.join(', '))}</span>` : ''}</td>
         <td><span class="estado ${p.activo ? 'activo' : 'inactivo'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
         <td><div class="celda-acciones">${p.editable ? `
           <button class="btn texto chico" type="button" data-pla="editar" data-id="${esc(p.id)}">Editar</button>
           ${p.id !== S.usuario.id ? `<button class="btn ${p.activo ? 'peligro' : 'texto'} chico" type="button" data-pla="${p.activo ? 'desactivar' : 'reactivar'}" data-id="${esc(p.id)}">${p.activo ? 'Desactivar' : 'Reactivar'}</button>` : ''}
-          ${p.activo ? `<button class="btn texto chico" type="button" data-pla="codigo" data-id="${esc(p.id)}">Nuevo código</button>` : ''}` : '<span class="sutil">Lo gestiona el admin</span>'}
+          ${p.activo ? `<button class="btn texto chico" type="button" data-pla="codigo" data-id="${esc(p.id)}">Nuevo código</button>` : ''}` : puedeAsignarSupervisa(p) ? `<button class="btn texto chico" type="button" data-pla="supervisa" data-id="${esc(p.id)}">Asignar supervisión</button>` : '<span class="sutil">Lo gestiona el admin</span>'}
+          ${p.id !== S.usuario.id && puedeVerSeguimiento(p) ? `<button class="btn texto chico" type="button" data-pla="seguimiento" data-id="${esc(p.id)}">Seguimiento</button>` : ''}
         </div></td>
       </tr>`).join('') : `<tr><td colspan="6" class="vacio">${q ? 'Nadie coincide con la búsqueda.' : 'No hay personas para mostrar.'}</td></tr>`;
   }
@@ -1224,15 +1233,21 @@
     setTimeout(() => $('#dc-cerrar').focus(), 20);
   }
 
-  function abrirDialogoPersona(p) {
+  function abrirDialogoPersona(p, soloSupervisa) {
     const esAdmin = S.usuario.rol === 'admin';
-    $('#dp-titulo').textContent = p ? 'Editar persona' : 'Agregar persona';
+    const conSupervisa = p ? puedeAsignarSupervisa(p) : (esAdmin || esDirectorRRHH());
+    $('#dp-titulo').textContent = soloSupervisa ? `Supervisión de ${p.nombre}` : p ? 'Editar persona' : 'Agregar persona';
+    ['#dp-nombre', '#dp-email', '#dp-area'].forEach((s) => { $(s).hidden = !!soloSupervisa; $(`label[for="${s.slice(1)}"]`).hidden = !!soloSupervisa; });
+    $('#dp-supervisa-caja').hidden = !conSupervisa;
+    $('#dp-supervisa').innerHTML = S.areas.map((a) => `<label><input type="checkbox" value="${esc(a)}"${p && (p.supervisa || []).includes(a) ? ' checked' : ''}> ${esc(a)}</label>`).join('');
     $('#dp-ok').textContent = p ? 'Guardar' : 'Agregar';
     $('#dp-nombre').value = p ? p.nombre : '';
     $('#dp-email').value = p ? p.email : '';
     $('#dp-area').innerHTML = planilla.areas.map((a) => `<option>${esc(a)}</option>`).join('');
     const areaSel = $('#pla-area').value;
     $('#dp-area').value = p ? p.area : (areaSel || planilla.areas[0] || '');
+    $('#dp-solo-admin').hidden = !esAdmin || !!soloSupervisa;
+    $('#dp-ok').textContent = soloSupervisa ? 'Guardar' : p ? 'Guardar' : 'Agregar';
     if (esAdmin) {
       $('#dp-rol').value = p ? p.rol : 'miembro';
       $('#dp-rol').disabled = !!p && p.id === S.usuario.id;
@@ -1245,7 +1260,18 @@
     $('#dp-cancelar').onclick = () => { $('#dialogo-persona').hidden = true; };
     $('#dp-form').onsubmit = async (ev) => {
       ev.preventDefault();
+      const supervisa = $$('#dp-supervisa input:checked').map((c) => c.value).join(', ');
+      if (soloSupervisa) {
+        try {
+          await api('actualizarPersona', { id: p.id, supervisa });
+          $('#dialogo-persona').hidden = true;
+          aviso('Supervisión actualizada.');
+          cargarPlanilla();
+        } catch (e) { aviso(e.message, true); }
+        return;
+      }
       const d = { nombre: $('#dp-nombre').value.trim(), email: $('#dp-email').value.trim(), area: $('#dp-area').value };
+      if (conSupervisa && (!p || supervisa !== (p.supervisa || []).join(', '))) d.supervisa = supervisa;
       if (esAdmin) {
         d.rol = $('#dp-rol').value;
         d.coordina = d.rol === 'coordinador' ? $$('#dp-coordina input:checked').map((c) => c.value).join(', ') : '';
@@ -1281,6 +1307,8 @@
     if (!p) return;
     const accion = b.dataset.pla;
     if (accion === 'editar') { abrirDialogoPersona(p); return; }
+    if (accion === 'supervisa') { abrirDialogoPersona(p, true); return; }
+    if (accion === 'seguimiento') { abrirSeguimiento(p); return; }
     if ((accion === 'desactivar' || accion === 'codigo') && !b.dataset.confirmar) {
       b.dataset.confirmar = '1';
       b.textContent = accion === 'desactivar' ? '¿Desactivar? Confirmar' : '¿Reemplazar código? Confirmar';
@@ -1299,6 +1327,127 @@
     } catch (e) {
       aviso(e.message, true);
     }
+  }
+
+  /* =================================================================
+   * Actividad (supervisión de RRHH)
+   * ================================================================= */
+
+  const AREA_RRHH = 'recursos humanos';
+  const esDirectorRRHH = () => S.usuario.rol === 'coordinador' && S.usuario.coordina.map((a) => a.toLowerCase()).includes(AREA_RRHH);
+  const areasActividadMias = () => (S.usuario.rol === 'admin' || esDirectorRRHH() ? S.areas : (S.usuario.supervisa || []));
+  const puedeAsignarSupervisa = (p) => S.usuario.rol === 'admin' || (esDirectorRRHH() && p.area.toLowerCase() === AREA_RRHH);
+  const puedeAnotar = (p) => areasActividadMias().map((a) => a.toLowerCase()).includes(p.area.toLowerCase());
+  const puedeVerSeguimiento = (p) => S.usuario.rol === 'admin' || puedeAnotar(p) ||
+    (S.usuario.rol === 'coordinador' && S.usuario.coordina.map((a) => a.toLowerCase()).includes(p.area.toLowerCase()));
+
+  let actividad = { personas: [], areas: [] };
+  const ETIQUETA_ACT = { inactivo: 'Inactivo', sin_registros: 'Sin registros', en_riesgo: 'En riesgo', activo: 'Activo' };
+
+  async function contarInactivos() {
+    try {
+      const j = await api('actividad');
+      const n = j.personas.filter((p) => p.estado === 'inactivo' || p.estado === 'sin_registros').length;
+      $('#cuenta-inactivos').textContent = n;
+      $('#cuenta-inactivos').hidden = !n;
+    } catch (e) { /* sin acceso */ }
+  }
+
+  async function cargarActividad() {
+    const tb = $('#act-tabla');
+    tb.innerHTML = '<tr><td colspan="7" class="vacio">Cargando…</td></tr>';
+    try {
+      actividad = await api('actividad');
+      const sel = $('#act-area');
+      const previo = sel.value;
+      sel.innerHTML = (actividad.areas.length > 1 ? '<option value="">Todas las áreas</option>' : '') +
+        actividad.areas.map((a) => `<option>${esc(a)}</option>`).join('');
+      if (previo && actividad.areas.includes(previo)) sel.value = previo;
+      sel.hidden = actividad.areas.length < 2;
+      const n = actividad.personas.filter((p) => p.estado === 'inactivo' || p.estado === 'sin_registros').length;
+      $('#cuenta-inactivos').textContent = n;
+      $('#cuenta-inactivos').hidden = !n;
+      renderActividad();
+    } catch (e) {
+      tb.innerHTML = '';
+      aviso(e.message, true);
+    }
+  }
+
+  function textoUltimaVez(p) {
+    if (!p.ultima_fecha) return '<span class="sutil">Nunca</span>';
+    const d = p.dias_sin_registrar;
+    return `${cap(fmtFechaCorta(p.ultima_fecha))}<span class="sub">${d === 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días`}</span>`;
+  }
+
+  function renderActividad() {
+    const area = $('#act-area').value;
+    const soloAlertas = $('#act-alertas').checked;
+    const enArea = actividad.personas.filter((p) => !area || p.area === area);
+    const rojas = enArea.filter((p) => p.estado === 'inactivo' || p.estado === 'sin_registros');
+    const amarillas = enArea.filter((p) => p.estado === 'en_riesgo');
+    $('#act-cifras').innerHTML = [
+      ['roja', rojas.length, 'inactivos (7+ días o sin registros)'],
+      ['amarilla', amarillas.length, 'en riesgo (4 a 6 días)'],
+      ['', enArea.length - rojas.length - amarillas.length, 'activos'],
+      ['', fmtH(enArea.reduce((s, p) => s + p.horas_7d, 0)) + ' h', 'registradas en 7 días'],
+    ].map(([c, v, t]) => `<div class="cifra ${c}"><b>${v}</b><span>${t}</span></div>`).join('');
+    const lista = enArea.filter((p) => !soloAlertas || p.estado !== 'activo');
+    $('#act-tabla').innerHTML = lista.length ? lista.map((p) => {
+      const roja = p.estado === 'inactivo' || p.estado === 'sin_registros';
+      return `<tr class="${roja ? 'alerta-roja' : p.estado === 'en_riesgo' ? 'alerta-amarilla' : ''}">
+        <td>${esc(p.nombre)}<span class="sub">${esc(p.area)}${p.rol === 'coordinador' ? ' · director' : ''}</span>${p.ultima_nota ? `<span class="ultima-nota" title="${esc(p.ultima_nota)}">Nota: ${esc(p.ultima_nota)}</span>` : ''}</td>
+        <td>${textoUltimaVez(p)}</td>
+        <td class="num">${fmtH(p.horas_7d)}</td>
+        <td class="num">${fmtH(p.horas_mes)}</td>
+        <td class="num">${p.tareas_abiertas}${p.tareas_vencidas ? `<span class="sub" style="color:var(--rech)">${p.tareas_vencidas} vencida${p.tareas_vencidas > 1 ? 's' : ''}</span>` : ''}</td>
+        <td><span class="estado ${p.estado === 'inactivo' ? 'inactivo-act' : p.estado === 'activo' ? 'activo-act' : esc(p.estado)}">${ETIQUETA_ACT[p.estado] || esc(p.estado)}</span></td>
+        <td><button class="btn texto chico" type="button" data-act-seguimiento="${esc(p.id)}">Seguimiento${p.notas ? ` (${p.notas})` : ''}</button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="7" class="vacio">${soloAlertas ? 'Nadie con alerta. Todos registraron horas en los últimos 4 días.' : 'No hay personas en esta área.'}</td></tr>`;
+  }
+
+  async function abrirSeguimiento(p) {
+    const fondo = $('#dialogo-seguimiento');
+    const anotar = puedeAnotar(p);
+    $('#ds-titulo').textContent = `Seguimiento de ${p.nombre}`;
+    $('#ds-sub').textContent = anotar ? `${p.area}. Las notas las ven RRHH, el director del área y el admin.` : `${p.area}. Notas de RRHH (solo lectura).`;
+    $('#ds-nueva').hidden = !anotar;
+    $('#ds-ok').hidden = !anotar;
+    $('#ds-texto').value = '';
+    $('#ds-notas').innerHTML = '<li class="vacio">Cargando…</li>';
+    fondo.hidden = false;
+    const cargar = async () => {
+      try {
+        const j = await api('notasSeguimiento', { persona_id: p.id });
+        $('#ds-notas').innerHTML = j.notas.length ? j.notas.map((n) => `<li><small>${esc(n.autor)} · ${esc(new Date(n.fecha).toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' }))}</small>${esc(n.nota)}</li>`).join('')
+          : '<li class="vacio">Todavía no hay notas de seguimiento.</li>';
+      } catch (e) {
+        $('#ds-notas').innerHTML = '';
+        aviso(e.message, true);
+      }
+    };
+    cargar();
+    if (anotar) setTimeout(() => $('#ds-texto').focus(), 20);
+    $('#ds-cerrar').onclick = () => { fondo.hidden = true; };
+    $('#ds-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const nota = $('#ds-texto').value.trim();
+      if (nota.length < 3) { aviso('Escribe la nota (al menos 3 caracteres).', true); return; }
+      const btn = $('#ds-ok');
+      btn.disabled = true;
+      try {
+        await api('agregarNota', { persona_id: p.id, nota });
+        $('#ds-texto').value = '';
+        aviso('Nota guardada.');
+        cargar();
+        if (S.pagina === 'actividad') cargarActividad();
+      } catch (e) {
+        aviso(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    };
   }
 
   /* =================================================================
@@ -1517,6 +1666,14 @@
     if (acciones[k]) { ev.preventDefault(); acciones[k](); }
   });
 
+  $('#act-area').addEventListener('change', renderActividad);
+  $('#act-alertas').addEventListener('change', renderActividad);
+  $('#act-tabla').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-act-seguimiento]');
+    if (!b) return;
+    const p = actividad.personas.find((x) => x.id === b.dataset.actSeguimiento);
+    if (p) abrirSeguimiento(p);
+  });
   $('#pla-tabla').addEventListener('click', manejarClicPlanilla);
   $('#pla-agregar').addEventListener('click', () => abrirDialogoPersona(null));
   $('#pla-buscar').addEventListener('input', renderPlanilla);
