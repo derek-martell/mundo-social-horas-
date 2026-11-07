@@ -498,6 +498,12 @@ tr.alerta-amarilla td:first-child { box-shadow: inset 4px 0 0 var(--pend); }
 .notas-lista .vacio { background: none; color: var(--sutil); padding: 4px 0; }
 .ultima-nota { display: block; color: var(--sutil); font-size: 12px; margin-top: 2px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.varios { border: 1px solid var(--linea); border-radius: 12px; padding: 6px 10px 10px; }
+.varios-atajos { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; border-bottom: 1px solid var(--linea-suave); padding-bottom: 6px; margin-bottom: 6px; }
+.varios-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 12px; max-height: 190px; overflow-y: auto; }
+.varios-lista label { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 3px 0; }
+.varios-lista small { color: var(--sutil); }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .nav a span { display: none; }

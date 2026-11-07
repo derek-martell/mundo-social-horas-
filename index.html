@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="styles.css?v=202611070015">
+  <link rel="stylesheet" href="styles.css?v=202611070042">
 </head>
 <body>
   <div id="banner-demo" class="banner-demo" hidden>
@@ -289,6 +289,15 @@
       <h2 id="dt-titulo-dialogo">Nueva tarea</h2>
       <label class="campo-etiqueta" for="dt-para">Para</label>
       <select id="dt-para" class="selector"></select>
+      <div id="dt-varios" class="varios" hidden>
+        <div class="varios-atajos">
+          <button type="button" class="btn texto chico" data-varios="directores">Todos los directores</button>
+          <button type="button" class="btn texto chico" data-varios="todos">Todos</button>
+          <button type="button" class="btn texto chico" data-varios="ninguno">Ninguno</button>
+          <span class="sutil" id="dt-varios-cuenta"></span>
+        </div>
+        <div id="dt-varios-lista" class="varios-lista"></div>
+      </div>
       <label class="campo-etiqueta" for="dt-titulo">Tarea o meta</label>
       <input id="dt-titulo" class="selector" maxlength="150" placeholder="Ej.: Nota sobre la inflación de noviembre">
       <label class="campo-etiqueta" for="dt-desc">Detalle <span class="sutil">(opcional)</span></label>
@@ -366,8 +375,8 @@
   </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js?v=202611070015"></script>
-  <script src="demo.js?v=202611070015"></script>
-  <script src="app.js?v=202611070015"></script>
+  <script src="config.js?v=202611070042"></script>
+  <script src="demo.js?v=202611070042"></script>
+  <script src="app.js?v=202611070042"></script>
 </body>
 </html>

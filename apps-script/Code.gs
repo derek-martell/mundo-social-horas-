@@ -598,22 +598,40 @@ function tareas_(u, d) {
   return { tareas: abiertas.concat(cerradas).map(t => Object.assign({}, t, { horas: horas[t.id] || 0 })) };
 }
 
+/**
+ * Crea una tarea. `asignada_a_id`: una persona. Solo el admin puede enviar además `asignada_a_ids`
+ * (varias personas, p. ej. todos los directores): se crea una tarea independiente por persona, para
+ * que cada una lleve su propio avance y sus horas.
+ */
 function crearTarea_(u, d, ctx) {
-  const p = ctx.porId[String(d.asignada_a_id || '')];
-  // El admin puede ponerse tareas a sí mismo: no hay nadie por encima que se las asigne.
-  const aSiMismo = p && p.id === u.id && esAdmin_(u);
-  if (!p || !p.activo || !p.area || !(aSiMismo || puedeRevisar_(u, p.id, p.area, ctx))) {
-    throw new ErrorApp('No puedes asignar tareas a esa persona.');
+  let ids = [String(d.asignada_a_id || '')];
+  if (Array.isArray(d.asignada_a_ids) && d.asignada_a_ids.length) {
+    if (!esAdmin_(u) && d.asignada_a_ids.length > 1) throw new ErrorApp('Solo el administrador asigna una tarea a varias personas.');
+    ids = d.asignada_a_ids.map(x => String(x || ''));
   }
+  ids = ids.filter((x, i) => x && ids.indexOf(x) === i);
+  if (!ids.length) throw new ErrorApp('Elige a quién asignar la tarea.');
+  if (ids.length > 60) throw new ErrorApp('Demasiadas personas a la vez (máx. 60).');
+  const personas = ids.map(id => {
+    const p = ctx.porId[id];
+    // El admin puede ponerse tareas a sí mismo: no hay nadie por encima que se las asigne.
+    const aSiMismo = p && p.id === u.id && esAdmin_(u);
+    if (!p || !p.activo || !p.area || !(aSiMismo || puedeRevisar_(u, p.id, p.area, ctx))) {
+      throw new ErrorApp('No puedes asignar tareas a ' + (p ? p.nombre : 'esa persona') + '.');
+    }
+    return p;
+  });
   const c = validarCamposTarea_(d, null);
   return conBloqueo_(() => {
-    const fila = Object.assign({
-      id: Utilities.getUuid(), creada: new Date().toISOString(),
+    const creada = new Date().toISOString();
+    const filas = personas.map(p => Object.assign({
+      id: Utilities.getUuid(), creada,
       asignada_por_id: u.id, asignada_por: u.nombre,
       asignada_a_id: p.id, asignada_a: p.nombre, area: p.area,
-    }, c, { estado: 'pendiente', completada_en: '', nota: '' });
-    hoja_(HOJA_TAREAS).appendRow(COLS_TAREAS.map(col => seguro_(fila[col])));
-    return { tarea: fila };
+    }, c, { estado: 'pendiente', completada_en: '', nota: '' }));
+    const hoja = hoja_(HOJA_TAREAS);
+    filas.forEach(fila => hoja.appendRow(COLS_TAREAS.map(col => seguro_(fila[col]))));
+    return { tarea: filas[0], tareas: filas };
   });
 }
 
