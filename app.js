@@ -1135,6 +1135,8 @@
     $('#dt-titulo').value = t ? t.titulo : '';
     $('#dt-desc').value = t ? t.descripcion : '';
     $('#dt-alta').checked = !!t && t.prioridad === 'alta';
+    $('#dt-avisar-caja').hidden = !!t;      // el aviso por correo es solo al crear
+    $('#dt-avisar').checked = true;
     $('#dt-fin-semana').textContent = cap(fmtFechaCorta(finSemanaStr()));
     $('#dt-fin-mes').textContent = cap(fmtFechaCorta(finMesStr()));
     const tipo = t ? t.tipo_plazo : 'semana';
@@ -1151,6 +1153,7 @@
       const d = {
         asignada_a_id: varios ? '' : $('#dt-para').value, titulo: $('#dt-titulo').value.trim(), descripcion: $('#dt-desc').value.trim(),
         plazo, tipo_plazo: tipoPlazo, prioridad: $('#dt-alta').checked ? 'alta' : 'normal',
+        avisar: $('#dt-avisar').checked,
       };
       if (varios) {
         d.asignada_a_ids = $$('#dt-varios-lista input:checked').map((c) => c.value);
@@ -1163,13 +1166,21 @@
       const btn = $('#dt-ok');
       btn.disabled = true;
       try {
+        let correos = null;
         if (t) await api('editarTarea', Object.assign({ id: t.id }, d));
-        else await api('crearTarea', d);
+        else correos = (await api('crearTarea', d)).correos || null;
         fondo.hidden = true;
         const m = S.equipo.find((x) => x.id === d.asignada_a_id);
         const n = (d.asignada_a_ids || [d.asignada_a_id]).length;
         const propia = n === 1 && d.asignada_a_id === S.usuario.id;
-        aviso(t ? 'Tarea actualizada.' : n > 1 ? `Tarea asignada a ${n} personas (una para cada una).` : propia ? 'Tarea agregada a tus tareas.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`);
+        let msg = t ? 'Tarea actualizada.' : n > 1 ? `Tarea asignada a ${n} personas (una para cada una).` : propia ? 'Tarea agregada a tus tareas.' : `Tarea asignada a ${m ? m.nombre : 'la persona'}.`;
+        let problema = false;
+        if (correos) {
+          if (correos.enviados) msg += (correos.enviados === 1 ? ' Se envió un correo de aviso' : ` Se enviaron ${correos.enviados} correos de aviso`) + (DEMO ? ' (en la demo no se envían de verdad).' : '.');
+          if (correos.sin_correo.length) { msg += ` Sin correo en la Planilla: ${correos.sin_correo.join(', ')}.`; problema = true; }
+          if (correos.fallidos.length) { msg += ` No se pudo enviar a: ${correos.fallidos.join(', ')}.`; problema = true; }
+        }
+        aviso(msg, problema);
         if ((d.asignada_a_ids || []).includes(S.usuario.id)) cargarMisTareas();
         S.vistaTareas = propia ? 'mias' : 'asignadas';
         if (propia) cargarMisTareas();

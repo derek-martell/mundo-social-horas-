@@ -25,6 +25,9 @@
  *                   por encima para aprobarlas.
  *   Nadie aprueba sus propias horas.
  *
+ * Avisos por correo: al crear una tarea (salvo `avisar: false`) se envía un correo a cada persona
+ * asignada, desde la cuenta dueña del script (MailApp; ~100 destinatarios por día en Gmail).
+ *
  * Tareas: quien puede revisar a una persona (misma jerarquía de arriba) puede asignarle tareas
  * (el admin, además, a sí mismo),
  * editarlas, cancelarlas y borrarlas (solo las que creó). La persona asignada las ve, cambia su
@@ -84,6 +87,8 @@ const UMBRAL_INACTIVO = 7;             // días sin registrar para considerar in
 const UMBRAL_AVISO = 4;                // días sin registrar para marcarla en riesgo
 const MAX_INTENTOS_FALLIDOS = 20;      // por ventana de 10 minutos, en todo el Web App
 const ZONA = 'America/Lima';
+// Dirección pública de la página (para el enlace de los correos de aviso).
+const URL_APP = 'https://derek-martell.github.io/mundo-social-horas-/';
 
 /* ------------------------------------------------------------------ */
 /* Configuración y menú del Sheet                                      */
@@ -622,7 +627,7 @@ function crearTarea_(u, d, ctx) {
     return p;
   });
   const c = validarCamposTarea_(d, null);
-  return conBloqueo_(() => {
+  const resultado = conBloqueo_(() => {
     const creada = new Date().toISOString();
     const filas = personas.map(p => Object.assign({
       id: Utilities.getUuid(), creada,
@@ -633,6 +638,64 @@ function crearTarea_(u, d, ctx) {
     filas.forEach(fila => hoja.appendRow(COLS_TAREAS.map(col => seguro_(fila[col]))));
     return { tarea: filas[0], tareas: filas };
   });
+  // El aviso por correo va después de guardar: si un envío falla, la tarea igual queda creada.
+  if (d.avisar !== false) resultado.correos = avisarTareaPorCorreo_(u, personas, c);
+  return resultado;
+}
+
+/** Fecha 'yyyy-MM-dd' en texto legible: "domingo 30 de noviembre". */
+function fechaLegible_(f) {
+  const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre',
+    'octubre', 'noviembre', 'diciembre'];
+  const p = f.split('-').map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2]);
+  return dias[d.getDay()] + ' ' + p[2] + ' de ' + meses[p[1] - 1];
+}
+
+function escHtml_(t) {
+  return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/**
+ * Envía a cada persona un correo avisando de la tarea nueva (desde la cuenta dueña del script).
+ * Nunca incluye códigos de acceso. Devuelve { enviados, sin_correo: [nombres], fallidos: [nombres] }.
+ */
+function avisarTareaPorCorreo_(u, personas, c) {
+  const res = { enviados: 0, sin_correo: [], fallidos: [] };
+  const plazo = fechaLegible_(c.plazo) + (c.tipo_plazo === 'semana' ? ' (esta semana)' : c.tipo_plazo === 'mes' ? ' (fin de mes)' : '');
+  const asunto = (c.prioridad === 'alta' ? '[Prioridad alta] ' : '') + 'Nueva tarea: ' + c.titulo;
+  personas.forEach(p => {
+    if (p.id === u.id) return; // no hace falta avisarse a uno mismo
+    if (!p.email) { res.sin_correo.push(p.nombre); return; }
+    const texto = 'Hola ' + p.nombre.split(' ')[0] + ':\n\n' +
+      u.nombre + ' te asignó una tarea en Horas de Mundo Social.\n\n' +
+      'Tarea: ' + c.titulo + '\n' +
+      (c.descripcion ? 'Detalle: ' + c.descripcion + '\n' : '') +
+      'Plazo: ' + plazo + '\n' +
+      (c.prioridad === 'alta' ? 'Prioridad: alta\n' : '') +
+      '\nPuedes verla, marcarla como hecha y registrar tus horas aquí: ' + URL_APP + '#tareas\n\n' +
+      'Este correo se envió automáticamente; no compartas tu código de acceso con nadie.';
+    const html = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#1d2329;line-height:1.5">' +
+      '<p>Hola ' + escHtml_(p.nombre.split(' ')[0]) + ':</p>' +
+      '<p><b>' + escHtml_(u.nombre) + '</b> te asignó una tarea en <b>Horas de Mundo Social</b>.</p>' +
+      '<table style="border-collapse:collapse;margin:8px 0">' +
+      '<tr><td style="padding:4px 12px 4px 0;color:#5d6872">Tarea</td><td style="padding:4px 0"><b>' + escHtml_(c.titulo) + '</b></td></tr>' +
+      (c.descripcion ? '<tr><td style="padding:4px 12px 4px 0;color:#5d6872">Detalle</td><td style="padding:4px 0">' + escHtml_(c.descripcion) + '</td></tr>' : '') +
+      '<tr><td style="padding:4px 12px 4px 0;color:#5d6872">Plazo</td><td style="padding:4px 0">' + escHtml_(plazo) + '</td></tr>' +
+      (c.prioridad === 'alta' ? '<tr><td style="padding:4px 12px 4px 0;color:#5d6872">Prioridad</td><td style="padding:4px 0;color:#b3261e"><b>Alta</b></td></tr>' : '') +
+      '</table>' +
+      '<p><a href="' + URL_APP + '#tareas" style="display:inline-block;background:#0d7a6b;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">Ver mis tareas</a></p>' +
+      '<p style="color:#5d6872;font-size:12px">Este correo se envió automáticamente. No compartas tu código de acceso con nadie.</p></div>';
+    try {
+      MailApp.sendEmail({ to: p.email, subject: asunto, body: texto, htmlBody: html, name: 'Mundo Social · Horas' });
+      res.enviados++;
+    } catch (e) {
+      console.error('No se pudo enviar el aviso a ' + p.nombre + ': ' + e);
+      res.fallidos.push(p.nombre);
+    }
+  });
+  return res;
 }
 
 function escribirTarea_(hoja, i, t) {
