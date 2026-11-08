@@ -299,7 +299,12 @@
         tareas.push(t);
         return conHoras(t);
       });
-      return { tarea: creadas[0], tareas: creadas };
+      const salida = { tarea: creadas[0], tareas: creadas };
+      if (d.avisar !== false) {
+        const otros = personas.filter((b) => b.id !== u.id);
+        salida.correos = { enviados: otros.filter((b) => b.email).length, sin_correo: otros.filter((b) => !b.email).map((b) => b.nombre), fallidos: [] };
+      }
+      return salida;
     },
     editarTarea(u, d) {
       const t = tareas.find((x) => x.id === d.id);

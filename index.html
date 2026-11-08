@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="styles.css?v=202611070042">
+  <link rel="stylesheet" href="styles.css?v=202611081357">
 </head>
 <body>
   <div id="banner-demo" class="banner-demo" hidden>
@@ -308,7 +308,10 @@
         <label><input type="radio" name="dt-plazo" value="mes"><span>Fin de mes<small id="dt-fin-mes"></small></span></label>
         <label><input type="radio" name="dt-plazo" value="fecha"><span>Otra fecha<small><input id="dt-fecha" type="date" aria-label="Fecha límite"></small></span></label>
       </div>
-      <label class="en-linea"><input id="dt-alta" type="checkbox"> Prioridad alta</label>
+      <div class="opciones-tarea">
+        <label class="en-linea"><input id="dt-alta" type="checkbox"> Prioridad alta</label>
+        <label class="en-linea" id="dt-avisar-caja"><input id="dt-avisar" type="checkbox" checked> Avisar por correo</label>
+      </div>
       <div class="dialogo-pie">
         <button type="button" class="btn texto" id="dt-cancelar">Cancelar</button>
         <button type="submit" class="btn primario" id="dt-ok">Asignar</button>
@@ -375,8 +378,8 @@
   </div>
   <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js?v=202611070042"></script>
-  <script src="demo.js?v=202611070042"></script>
-  <script src="app.js?v=202611070042"></script>
+  <script src="config.js?v=202611081357"></script>
+  <script src="demo.js?v=202611081357"></script>
+  <script src="app.js?v=202611081357"></script>
 </body>
 </html>
