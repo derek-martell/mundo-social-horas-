@@ -863,6 +863,16 @@ function aBooleano_(v) {
   throw new ErrorApp('Valor de "activo" inválido.');
 }
 
+/**
+ * Reconoce un cargo escrito a mano en el Sheet: "Subdirector", "subdirectora", "Sub director"…
+ * Devuelve el cargo normalizado ('subdirector') o ''.
+ */
+function cargoDeTexto_(v) {
+  const t = normalizar_(v).replace(/[\s_-]+/g, '');
+  if (/^subdirector[a]?$/.test(t)) return 'subdirector';
+  return '';
+}
+
 /** Cargo (etiqueta) válido: '' o uno de CARGOS. Solo aplica a personas con rol 'miembro'. */
 function validarCargo_(v) {
   const c = normalizar_(v);
@@ -967,6 +977,12 @@ function actualizarPersona_(u, d) {
     // El cargo es una etiqueta de miembros: quien gestiona a la persona puede ponerlo o quitarlo.
     if (rol !== 'miembro') cambios.cargo = '';
     else if (hay('cargo')) cambios.cargo = validarCargo_(d.cargo);
+    // Si la columna rol tenía otro texto (p. ej. "Subdirector" escrito a mano), se guarda el rol limpio
+    // y la etiqueta pasa a la columna cargo, para que quitarla desde la planilla funcione.
+    if (normalizar_(fila.rol) !== rol) {
+      cambios.rol = rol;
+      if (rol === 'miembro' && !hay('cargo') && cargoDeTexto_(fila.rol)) cambios.cargo = cargoDeTexto_(fila.rol);
+    }
     const nueva = Object.assign({}, fila, cambios);
     hoja.getRange(i + 2, 1, 1, COLS_MIEMBROS.length)
       .setValues([COLS_MIEMBROS.map(col => seguro_(nueva[col]))]);
@@ -1155,7 +1171,9 @@ function leerMiembros_() {
       coordinaNombres: String(m.coordina || '').split(',').map(x => x.trim()).filter(Boolean),
       supervisa: String(m.supervisa || '').split(',').map(normalizar_).filter(Boolean),
       supervisaNombres: String(m.supervisa || '').split(',').map(x => x.trim()).filter(Boolean),
-      cargo: CARGOS.indexOf(normalizar_(m.cargo)) !== -1 ? normalizar_(m.cargo) : '',
+      // Si alguien escribió "Subdirector" en la columna rol (en vez de en cargo), se entiende igual:
+      // es un miembro con esa etiqueta.
+      cargo: cargoDeTexto_(m.cargo) || cargoDeTexto_(m.rol),
       codigo: String(m.codigo).trim(),
       activo: m.activo === true || /^(si|sí|true|1|x)$/i.test(String(m.activo).trim()),
     }));
