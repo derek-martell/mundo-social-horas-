@@ -105,7 +105,7 @@ En la hoja **Miembros**, borra las filas de ejemplo y agrega una fila por person
 | `coordina` | Solo para coordinadores: el área que coordinan (o varias, separadas por comas). Se escribe igual que en la columna `area` (no importan las mayúsculas). Normalmente es su propia área. |
 | `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código numérico de 8 dígitos, distinto para cada persona (p. ej. `48302917`). |
 | `activo` | `sí` para permitir el acceso. Pon `no` para quitárselo sin borrar sus horas. |
-| `cargo` | Opcional: `subdirector` para mostrar esa etiqueta. No cambia permisos. |
+| `cargo` | Opcional: `subdirector` para mostrar esa etiqueta. No cambia permisos. (Si se escribe "Subdirector" en la columna `rol`, también se reconoce: esa persona queda como miembro con la etiqueta.) |
 | `supervisa` | Solo para personas de RRHH: las áreas cuya actividad supervisan, separadas por comas. Se puede dejar vacío y asignarlo desde la Planilla. |
 
 Envía a cada persona su código por un canal privado (WhatsApp, correo). Si un código se filtra, borra esa celda y vuelve a generar uno.
