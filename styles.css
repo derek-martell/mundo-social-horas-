@@ -506,6 +506,8 @@ tr.alerta-amarilla td:first-child { box-shadow: inset 4px 0 0 var(--pend); }
 
 .opciones-tarea { display: flex; flex-wrap: wrap; gap: 8px 24px; }
 
+.rol.subdirector { background: color-mix(in srgb, var(--acento) 10%, var(--panel-2)); color: var(--acento); }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .nav a span { display: none; }

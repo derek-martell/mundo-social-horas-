@@ -22,6 +22,8 @@ Cada persona pertenece a **un área** (Redacción, Redes sociales, Diseño…). 
 | `coordinador` | Lo mismo, más **ver y aprobar solo a los miembros de su área**, y ver los totales de su área. | El admin. |
 | `admin` | Aprobar las horas de **los coordinadores** y ver el **resumen general** de todo el grupo en Totales. | Nadie: se aprueban solas al registrarlas (y puede corregirlas). |
 
+**Subdirector** es solo una etiqueta (columna `cargo` de Miembros): se ve en la Planilla, Por aprobar, Actividad y Totales, pero esa persona funciona exactamente como un miembro. La pone o quita el admin o el director de su área desde **Planilla → Editar**.
+
 Nadie aprueba sus propias horas. Si un área no tiene coordinador activo, sus miembros los aprueba el admin, para que nadie quede sin revisar.
 
 Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **hora de inicio y de fin** (en tramos de 15 minutos; las horas se calculan solas), descripción, enlace opcional y estado (`pendiente`, `aprobado` o `rechazado`). No se permiten dos registros propios que se crucen en horario.
@@ -83,7 +85,7 @@ Cada registro lleva: miembro, área (la de la persona, se pone sola), fecha, **h
 3. Guarda el proyecto.
 4. En la barra superior, comprueba que el selector de funciones diga **`configurar`** (es la primera del archivo) y pulsa **▶ Ejecutar**. En el **Registro de ejecución** verás "N código(s) generado(s)" y "Listo. Hojas: Miembros, Registros, Tareas". Para verificar el Web App ya desplegado, abre su URL en el navegador: muestra un diagnóstico (hojas y cuántas personas tienen código). La primera vez Google pedirá autorizar el acceso al Sheet: acéptalo.
    Esto crea cuatro hojas:
-   - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo | supervisa`, con tres filas de ejemplo.
+   - **Miembros:** `id | nombre | email | area | rol | coordina | codigo | activo | supervisa | cargo`, con tres filas de ejemplo.
    - **Registros:** aquí se guardan las horas. No hace falta tocarla.
    - **Tareas:** las tareas y metas asignadas. Tampoco hace falta tocarla.
    - **Seguimiento:** las notas de seguimiento de RRHH.
@@ -103,6 +105,7 @@ En la hoja **Miembros**, borra las filas de ejemplo y agrega una fila por person
 | `coordina` | Solo para coordinadores: el área que coordinan (o varias, separadas por comas). Se escribe igual que en la columna `area` (no importan las mayúsculas). Normalmente es su propia área. |
 | `codigo` | Déjalo vacío y usa **Registro de horas → Generar códigos faltantes**: crea un código numérico de 8 dígitos, distinto para cada persona (p. ej. `48302917`). |
 | `activo` | `sí` para permitir el acceso. Pon `no` para quitárselo sin borrar sus horas. |
+| `cargo` | Opcional: `subdirector` para mostrar esa etiqueta. No cambia permisos. |
 | `supervisa` | Solo para personas de RRHH: las áreas cuya actividad supervisan, separadas por comas. Se puede dejar vacío y asignarlo desde la Planilla. |
 
 Envía a cada persona su código por un canal privado (WhatsApp, correo). Si un código se filtra, borra esa celda y vuelve a generar uno.
