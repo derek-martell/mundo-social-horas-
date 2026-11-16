@@ -23,7 +23,8 @@
   ];
   const CODIGOS = { 'DEMO-ADMIN': 'm01', 'DEMO-COORD': 'm02', 'DEMO-MIEMBRO': 'm03', 'DEMO-RRHH': 'm12', 'DEMO-DIR-RRHH': 'm11' };
   const AREA_RRHH = 'Recursos Humanos';
-  MIEMBROS.forEach((m) => { if (!m.supervisa) m.supervisa = []; });
+  MIEMBROS.forEach((m) => { if (!m.supervisa) m.supervisa = []; if (!m.cargo) m.cargo = ''; });
+  MIEMBROS.find((m) => m.id === 'm03').cargo = 'subdirector'; // etiqueta de ejemplo
   const AREAS = Array.from(new Set(MIEMBROS.map((m) => m.area))).sort((a, b) => a.localeCompare(b));
 
   const TAREAS = {
@@ -164,7 +165,7 @@
     return u.rol === 'coordinador' && m.rol === 'miembro' && u.coordina.map(norm).includes(norm(m.area));
   }
   const persona = (u, m) => ({ id: m.id, nombre: m.nombre, email: m.email || '', area: m.area, rol: m.rol,
-    coordina: m.coordina.slice(), supervisa: (m.supervisa || []).slice(), activo: m.activo !== false, tiene_codigo: true,
+    cargo: m.cargo || '', coordina: m.coordina.slice(), supervisa: (m.supervisa || []).slice(), activo: m.activo !== false, tiene_codigo: true,
     editable: puedeGestionar(u, m), puede_supervisa: u.rol === 'admin' || (esDirectorRRHH(u) && norm(m.area) === norm(AREA_RRHH)) });
   function nuevoCodigo() {
     let c;
@@ -234,7 +235,7 @@
     (!d.mes || r.fecha.slice(0, 7) === d.mes);
 
   const acciones = {
-    login: (u) => ({ usuario: { id: u.id, nombre: u.nombre, area: u.area, rol: u.rol, coordina: u.coordina,
+    login: (u) => ({ usuario: { id: u.id, nombre: u.nombre, area: u.area, rol: u.rol, cargo: u.cargo || '', coordina: u.coordina,
       supervisa: (u.supervisa || []).slice(), ve_actividad: areasActividad(u).length > 0 }, areas: AREAS }),
     registrar(u, d) {
       const c = validar(d); cruce(u.id, c);
@@ -344,7 +345,7 @@
         const ds = ultima ? dias(ultima) : null;
         const abiertas = tareas.filter((t) => t.asignada_a_id === m.id && (t.estado === 'pendiente' || t.estado === 'en_progreso'));
         const suyas = notas.filter((n) => n.persona_id === m.id).sort((a, b) => b.fecha.localeCompare(a.fecha));
-        return { id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, ultima_fecha: ultima, dias_sin_registrar: ds,
+        return { id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, cargo: m.cargo || '', ultima_fecha: ultima, dias_sin_registrar: ds,
           horas_7d: rs.filter((r) => r.fecha >= hace7).reduce((a, r) => a + r.horas, 0),
           horas_mes: rs.filter((r) => r.fecha.slice(0, 7) === hoy.slice(0, 7)).reduce((a, r) => a + r.horas, 0),
           tareas_abiertas: abiertas.length, tareas_vencidas: abiertas.filter((t) => t.plazo < hoy).length,
@@ -385,6 +386,7 @@
       const n = Math.max(...MIEMBROS.map((m) => Number(m.id.slice(1)))) + 1;
       const m = Object.assign({ id: 'm' + String(n).padStart(2, '0'), activo: true }, c);
       if (u.rol !== 'admin') { m.rol = 'miembro'; m.coordina = []; }
+      m.cargo = m.rol === 'miembro' && d.cargo === 'subdirector' ? 'subdirector' : '';
       MIEMBROS.push(m);
       const codigo = nuevoCodigo();
       CODIGOS[codigo] = m.id;
@@ -404,6 +406,8 @@
       if (m.id === u.id && (d.activo === false || (d.rol && d.rol !== u.rol))) throw new ErrorDemo('No puedes desactivarte ni cambiar tu propio rol.');
       Object.assign(m, validarPersona(u, Object.assign({ nombre: m.nombre, email: m.email, area: m.area, rol: m.rol, coordina: m.coordina.join(', ') }, d), m));
       if (d.activo !== undefined) m.activo = !!d.activo;
+      if (m.rol !== 'miembro') m.cargo = '';
+      else if (d.cargo !== undefined) m.cargo = d.cargo === 'subdirector' ? 'subdirector' : '';
       if (d.supervisa !== undefined) m.supervisa = String(Array.isArray(d.supervisa) ? d.supervisa.join(',') : d.supervisa || '').split(',').map((x) => x.trim()).filter(Boolean);
       return { persona: persona(u, m) };
     },
@@ -418,7 +422,7 @@
     miembrosEquipo(u) {
       if (u.rol === 'miembro') throw new ErrorDemo('No tienes permiso para ver otros calendarios.');
       return { miembros: MIEMBROS.filter((m) => m.activo !== false && puedeRevisar(u, m.id, m.area))
-        .map((m) => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol }))
+        .map((m) => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, cargo: m.cargo || '' }))
         .sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre)) };
     },
     revisar(u, d) {
@@ -434,7 +438,8 @@
       return { actualizados: n };
     },
     resumen(u, d) {
-      const base = registros.map((r) => Object.assign({}, r, { rol: rolDe(r.miembro_id) })).filter((r) =>
+      const base = registros.map((r) => Object.assign({}, r, { rol: rolDe(r.miembro_id),
+        cargo: (MIEMBROS.find((m) => m.id === r.miembro_id) || {}).cargo || '' })).filter((r) =>
         (u.rol === 'admin' || r.miembro_id === u.id || (u.rol === 'coordinador' && u.coordina.map(norm).includes(norm(r.area)))) &&
         (!d.soloAprobadas || r.estado === 'aprobado') && (!d.rol || r.rol === d.rol) &&
         (!d.desde || r.fecha.slice(0, 7) >= d.desde) && (!d.hasta || r.fecha.slice(0, 7) <= d.hasta));
@@ -443,7 +448,7 @@
       rs.forEach((r) => {
         const mes = r.fecha.slice(0, 7); const c = r.estado === 'aprobado' ? 'aprobadas' : 'pendientes';
         const k = r.miembro_id + mes;
-        (pm[k] = pm[k] || { miembro: r.miembro, rol: r.rol, area: r.area, mes, aprobadas: 0, pendientes: 0 })[c] += r.horas;
+        (pm[k] = pm[k] || { miembro: r.miembro, rol: r.rol, cargo: r.cargo, area: r.area, mes, aprobadas: 0, pendientes: 0 })[c] += r.horas;
         (pa[r.area] = pa[r.area] || { area: r.area, aprobadas: 0, pendientes: 0 })[c] += r.horas;
         t.total += r.horas; t[c] += r.horas;
       });
@@ -453,7 +458,7 @@
         porArea: Object.values(pa).sort((a, b) => tot(b) - tot(a)) };
       if (d.detalle) {
         salida.detalle = base.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.miembro.localeCompare(b.miembro) || a.inicio.localeCompare(b.inicio))
-          .map((r) => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol, area: r.area,
+          .map((r) => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol, cargo: r.cargo, area: r.area,
             descripcion: r.descripcion, enlace: r.enlace, estado: r.estado, revisado_por: r.revisado_por, comentario: r.comentario,
             tarea: (tareas.find((t) => t.id === r.tarea_id) || {}).titulo || '' }));
       }

@@ -82,6 +82,11 @@
   const editable = (r) => !S.viendo && (r.estado !== 'aprobado' || S.usuario.rol === 'admin');
   const ROLES = { admin: 'Admin', coordinador: 'Coordinador', miembro: 'Miembro' };
   const rolDe = (id) => { const m = S.equipo.find((x) => x.id === id); return m ? m.rol : 'miembro'; };
+  const cargoDe = (id) => { const m = S.equipo.find((x) => x.id === id); return m ? m.cargo || '' : ''; };
+  // "Subdirector" es solo una etiqueta: para permisos sigue siendo un miembro.
+  const etiquetaRol = (rol, cargo) => (rol === 'miembro' && cargo === 'subdirector' ? 'Subdirector'
+    : rol === 'coordinador' ? 'Director' : { admin: 'Admin', miembro: 'Miembro' }[rol] || rol);
+  const claseRol = (rol, cargo) => (rol === 'miembro' && cargo === 'subdirector' ? 'subdirector' : rol);
 
   function leerPrefs() { try { return JSON.parse(localStorage.getItem(CLAVE_PREFS) || '{}'); } catch (e) { return {}; } }
   function guardarPref(k, v) { prefs[k] = v; try { localStorage.setItem(CLAVE_PREFS, JSON.stringify(prefs)); } catch (e) { /* nada */ } }
@@ -169,7 +174,7 @@
     const u = S.usuario;
     $('#vista-login').hidden = true;
     $('#app').hidden = false;
-    const rolTxt = { admin: 'Administrador', coordinador: 'Coordinador · ' + (u.coordina.join(', ') || '—'), miembro: 'Miembro' }[u.rol];
+    const rolTxt = { admin: 'Administrador', coordinador: 'Coordinador · ' + (u.coordina.join(', ') || '—'), miembro: u.cargo === 'subdirector' ? 'Subdirector' : 'Miembro' }[u.rol];
     $('#btn-usuario').textContent = iniciales(u.nombre);
     $('#btn-usuario').title = u.nombre;
     $('#menu-avatar').textContent = iniciales(u.nombre);
@@ -191,7 +196,7 @@
     if (esRevisor()) {
       api('miembrosEquipo').then((j) => {
         S.equipo = j.miembros;
-        const opciones = j.miembros.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'miembro' && u.rol === 'admin' ? ' (sin coordinador)' : ''}</option>`).join('');
+        const opciones = j.miembros.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.cargo === 'subdirector' ? ' · subdirector' : ''}${m.rol === 'miembro' && u.rol === 'admin' ? ' (sin coordinador)' : ''}</option>`).join('');
         $('#sel-persona').innerHTML = `<option value="">Mis horas</option>${opciones}`;
         $('#rev-persona').innerHTML = `<option value="">${u.rol === 'admin' ? 'Todos los coordinadores' : 'Toda mi área'}</option>${opciones}`;
       }).catch((e) => aviso(e.message, true));
@@ -892,7 +897,7 @@
       tb.innerHTML = registros.length ? registros.map((r) => `
         <tr>
           <td>${r.estado === 'pendiente' ? `<input type="checkbox" class="rev-sel" value="${esc(r.id)}" aria-label="Seleccionar">` : ''}</td>
-          <td>${esc(r.miembro)}<span class="sub">${S.usuario.rol === 'admin' ? (rolDe(r.miembro_id) === 'coordinador' ? 'Coordinador' : 'Área sin coordinador') : 'Miembro'}</span></td>
+          <td>${esc(r.miembro)}<span class="sub">${S.usuario.rol === 'admin' ? (rolDe(r.miembro_id) === 'coordinador' ? 'Coordinador' : 'Área sin coordinador') : etiquetaRol('miembro', cargoDe(r.miembro_id))}</span></td>
           <td>${fmtFechaCorta(r.fecha)}</td>
           <td class="num">${r.inicio ? `${horaCorta(r.inicio)}–${horaCorta(r.fin)}` : '—'}</td>
           <td class="num">${fmtH(r.horas)}</td>
@@ -1102,7 +1107,7 @@
     $('#dt-titulo-dialogo').textContent = t ? 'Editar tarea' : 'Nueva tarea';
     $('#dt-ok').textContent = t ? 'Guardar' : 'Asignar';
     const yo = S.usuario.rol === 'admin' ? `<option value="${esc(S.usuario.id)}">Yo (${esc(S.usuario.nombre)})</option>` : '';
-    $('#dt-para').innerHTML = yo + S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : ''}</option>`).join('');
+    $('#dt-para').innerHTML = yo + S.equipo.map((m) => `<option value="${esc(m.id)}">${esc(m.nombre)} · ${esc(m.area)}${m.rol === 'coordinador' ? ' (coordinador)' : m.cargo === 'subdirector' ? ' (subdirector)' : ''}</option>`).join('');
     $('#dt-para').disabled = !!t;
     // El admin puede asignar una misma tarea a varias personas (una tarea por persona).
     const varios = S.usuario.rol === 'admin' && !t;
@@ -1111,7 +1116,7 @@
     if (varios) {
       const personas = [{ id: S.usuario.id, nombre: 'Yo', area: S.usuario.nombre, rol: 'admin' }].concat(S.equipo);
       $('#dt-varios-lista').innerHTML = personas.map((m) => `<label><input type="checkbox" value="${esc(m.id)}" data-rol="${esc(m.rol)}">
-        <span>${esc(m.nombre)} <small>${esc(m.area)}${m.rol === 'coordinador' ? ' · director' : ''}</small></span></label>`).join('');
+        <span>${esc(m.nombre)} <small>${esc(m.area)}${m.rol === 'coordinador' ? ' · director' : m.cargo === 'subdirector' ? ' · subdirector' : ''}</small></span></label>`).join('');
       const contar = () => {
         const n = $$('#dt-varios-lista input:checked').length;
         $('#dt-varios-cuenta').textContent = n ? `${n} seleccionada${n > 1 ? 's' : ''}` : '';
@@ -1253,7 +1258,7 @@
         <td>${esc(p.nombre)}${p.id === S.usuario.id ? ' <span class="sub">(tú)</span>' : ''}</td>
         <td>${p.email ? esc(p.email) : '<span class="sutil">—</span>'}</td>
         <td><span class="punto" style="--c:${colorArea(p.area)}"></span> ${esc(p.area)}</td>
-        <td><span class="rol ${esc(p.rol)}">${p.rol === 'coordinador' ? 'Director' : ROLES[p.rol] || esc(p.rol)}</span>${p.rol === 'coordinador' && p.coordina.length ? `<span class="sub">${esc(p.coordina.join(', '))}</span>` : ''}${(p.supervisa || []).length ? `<span class="sub">Supervisa: ${esc(p.supervisa.join(', '))}</span>` : ''}</td>
+        <td><span class="rol ${esc(claseRol(p.rol, p.cargo))}">${esc(etiquetaRol(p.rol, p.cargo))}</span>${p.rol === 'coordinador' && p.coordina.length ? `<span class="sub">${esc(p.coordina.join(', '))}</span>` : ''}${(p.supervisa || []).length ? `<span class="sub">Supervisa: ${esc(p.supervisa.join(', '))}</span>` : ''}</td>
         <td><span class="estado ${p.activo ? 'activo' : 'inactivo'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
         <td><div class="celda-acciones">${p.editable ? `
           <button class="btn texto chico" type="button" data-pla="editar" data-id="${esc(p.id)}">Editar</button>
@@ -1289,12 +1294,18 @@
     const areaSel = $('#pla-area').value;
     $('#dp-area').value = p ? p.area : (areaSel || planilla.areas[0] || '');
     $('#dp-solo-admin').hidden = !esAdmin || !!soloSupervisa;
+    $('#dp-subdirector').checked = !!p && p.cargo === 'subdirector';
+    const syncCargo = () => {
+      const rolElegido = esAdmin ? $('#dp-rol').value : (p ? p.rol : 'miembro');
+      $('#dp-cargo-caja').hidden = !!soloSupervisa || rolElegido !== 'miembro';
+    };
+    syncCargo();
     $('#dp-ok').textContent = soloSupervisa ? 'Guardar' : p ? 'Guardar' : 'Agregar';
     if (esAdmin) {
       $('#dp-rol').value = p ? p.rol : 'miembro';
       $('#dp-rol').disabled = !!p && p.id === S.usuario.id;
       $('#dp-coordina').innerHTML = planilla.areas.map((a) => `<label><input type="checkbox" value="${esc(a)}"${p && p.coordina.includes(a) ? ' checked' : ''}> ${esc(a)}</label>`).join('');
-      const sync = () => { $('#dp-coordina-caja').hidden = $('#dp-rol').value !== 'coordinador'; };
+      const sync = () => { $('#dp-coordina-caja').hidden = $('#dp-rol').value !== 'coordinador'; syncCargo(); };
       $('#dp-rol').onchange = sync; sync();
     }
     $('#dialogo-persona').hidden = false;
@@ -1313,6 +1324,7 @@
         return;
       }
       const d = { nombre: $('#dp-nombre').value.trim(), email: $('#dp-email').value.trim(), area: $('#dp-area').value };
+      if (!$('#dp-cargo-caja').hidden) d.cargo = $('#dp-subdirector').checked ? 'subdirector' : '';
       if (conSupervisa && (!p || supervisa !== (p.supervisa || []).join(', '))) d.supervisa = supervisa;
       if (esAdmin) {
         d.rol = $('#dp-rol').value;
@@ -1438,7 +1450,7 @@
     $('#act-tabla').innerHTML = lista.length ? lista.map((p) => {
       const roja = p.estado === 'inactivo' || p.estado === 'sin_registros';
       return `<tr class="${roja ? 'alerta-roja' : p.estado === 'en_riesgo' ? 'alerta-amarilla' : ''}">
-        <td>${esc(p.nombre)}<span class="sub">${esc(p.area)}${p.rol === 'coordinador' ? ' · director' : ''}</span>${p.ultima_nota ? `<span class="ultima-nota" title="${esc(p.ultima_nota)}">Nota: ${esc(p.ultima_nota)}</span>` : ''}</td>
+        <td>${esc(p.nombre)}<span class="sub">${esc(p.area)}${p.rol === 'coordinador' ? ' · director' : p.cargo === 'subdirector' ? ' · subdirector' : ''}</span>${p.ultima_nota ? `<span class="ultima-nota" title="${esc(p.ultima_nota)}">Nota: ${esc(p.ultima_nota)}</span>` : ''}</td>
         <td>${textoUltimaVez(p)}</td>
         <td class="num">${fmtH(p.horas_7d)}</td>
         <td class="num">${fmtH(p.horas_mes)}</td>
@@ -1507,7 +1519,7 @@
       const tot = (x) => x.aprobadas + x.pendientes;
       const vacio = (n) => `<tr><td colspan="${n}" class="vacio">Sin horas en este periodo.</td></tr>`;
       $('#res-persona').innerHTML = j.porPersonaMes.length ? j.porPersonaMes.map((x) => `<tr>
-        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td><span class="rol ${esc(x.rol)}">${ROLES[x.rol] || esc(x.rol)}</span></td><td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
+        <td>${cap(fmtMes(x.mes))}</td><td>${esc(x.miembro)}</td><td><span class="rol ${esc(claseRol(x.rol, x.cargo))}">${esc(etiquetaRol(x.rol, x.cargo))}</span></td><td><span class="punto" style="--c:${colorArea(x.area)}"></span> ${esc(x.area)}</td>
         <td class="num">${fmtH(x.aprobadas)}</td><td class="num">${fmtH(x.pendientes)}</td><td class="num"><b>${fmtH(tot(x))}</b></td></tr>`).join('') : vacio(7);
       const maxArea = Math.max(1, ...j.porArea.map(tot));
       $('#res-area').innerHTML = j.porArea.length ? j.porArea.map((x) => `<tr>
@@ -1569,7 +1581,7 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
         ['Mes', 'Miembro', 'Rol', 'Área', 'Horas aprobadas', 'Horas pendientes', 'Horas en total'],
-        j.porPersonaMes.map((x) => [x.mes, x.miembro, rol(x.rol), x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]),
+        j.porPersonaMes.map((x) => [x.mes, x.miembro, etiquetaRol(x.rol, x.cargo), x.area, x.aprobadas, x.pendientes, x.aprobadas + x.pendientes]),
         [10, 24, 14, 18, 16, 16, 15]), 'Por persona y mes');
       XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
         ['Área', 'Horas aprobadas', 'Horas pendientes', 'Horas en total'],
@@ -1577,7 +1589,7 @@
         [20, 16, 16, 15]), 'Por área');
       XLSX.utils.book_append_sheet(wb, hojaConFiltros(XLSX,
         ['Fecha', 'Inicio', 'Fin', 'Horas', 'Miembro', 'Rol', 'Área', 'Descripción', 'Enlace', 'Estado', 'Revisado por', 'Comentario'],
-        j.detalle.map((r) => [aFecha(r.fecha), r.inicio, r.fin, r.horas, r.miembro, rol(r.rol), r.area, r.descripcion,
+        j.detalle.map((r) => [aFecha(r.fecha), r.inicio, r.fin, r.horas, r.miembro, etiquetaRol(r.rol, r.cargo), r.area, r.descripcion,
           r.enlace, estado(r.estado), r.revisado_por, r.comentario]),
         [11, 7, 7, 7, 22, 13, 16, 50, 30, 11, 22, 30]), 'Detalle');
       const f = filtrosTotales();

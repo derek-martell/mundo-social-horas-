@@ -34,6 +34,10 @@
  * estado (pendiente / en_progreso / hecha), deja una nota y puede ligar sus horas a la tarea
  * con `tarea_id` en Registros. El admin ve todas las tareas.
  *
+ * Cargo: columna `cargo` de Miembros con una etiqueta visible (hoy, "subdirector"). Es solo informativa:
+ * quien la tiene sigue siendo un miembro para permisos, aprobaciones, tareas y actividad. La asigna
+ * quien gestiona a la persona en la planilla (el admin o el director de su área).
+ *
  * Planilla: la gente se gestiona desde la app, sin tocar el Sheet. El admin gestiona a todos; un
  * coordinador, solo a los miembros (rol 'miembro') de las áreas que coordina. Puede ver la planilla
  * (`planilla`), agregar personas (`agregarPersona`, con código de acceso nuevo que se devuelve una
@@ -71,7 +75,10 @@ const HOJA_TAREAS = 'Tareas';
 const HOJA_SEGUIMIENTO = 'Seguimiento';
 const AREA_RRHH = 'Recursos Humanos';
 
-const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo', 'supervisa'];
+const COLS_MIEMBROS = ['id', 'nombre', 'email', 'area', 'rol', 'coordina', 'codigo', 'activo', 'supervisa', 'cargo'];
+// `cargo` es solo una etiqueta visible (p. ej. "subdirector"): no cambia permisos; esa persona
+// sigue funcionando como un miembro más.
+const CARGOS = ['subdirector'];
 const COLS_MIEMBROS_ANTIGUAS = COLS_MIEMBROS.slice(0, 8); // antes de agregar `supervisa`
 const COLS_REGISTROS = ['id', 'creado', 'miembro_id', 'miembro', 'area', 'fecha', 'inicio', 'fin', 'horas',
   'descripcion', 'enlace', 'estado', 'revisado_por', 'revisado_en', 'comentario', 'tarea_id'];
@@ -119,9 +126,9 @@ function configurar() {
     if (importada) importada.setName(HOJA_MIEMBROS).setFrozenRows(1);
   }
   crear(HOJA_MIEMBROS, COLS_MIEMBROS, [
-    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí', ''],
-    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí', ''],
-    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí', ''],
+    ['m01', 'Admin de ejemplo', 'admin@ejemplo.com', 'Dirección', 'admin', '', '', 'sí', '', ''],
+    ['m02', 'Coordinadora de ejemplo', 'coord@ejemplo.com', 'Redacción', 'coordinador', 'Redacción', '', 'sí', '', ''],
+    ['m03', 'Miembro de ejemplo', 'miembro@ejemplo.com', 'Redacción', 'miembro', '', '', 'sí', '', ''],
   ]);
   const reg = crear(HOJA_REGISTROS, COLS_REGISTROS);
   reg.getRange('F:H').setNumberFormat('@'); // fecha, inicio y fin como texto
@@ -140,7 +147,13 @@ function configurar() {
   if (miembros.getLastRow() > 0 && !String(miembros.getRange(1, colSup).getValues()[0][0] || '').trim()) {
     miembros.getRange(1, colSup).setValue('supervisa');
     miembros.getRange(1, colSup).setFontWeight('bold');
+  }  // Hojas ya existentes: agrega el encabezado de cargo si falta.
+  const colCargo = COLS_MIEMBROS.indexOf('cargo') + 1;
+  if (miembros.getLastRow() > 0 && !String(miembros.getRange(1, colCargo).getValues()[0][0] || '').trim()) {
+    miembros.getRange(1, colCargo).setValue('cargo');
+    miembros.getRange(1, colCargo).setFontWeight('bold');
   }
+
   const seg = crear(HOJA_SEGUIMIENTO, COLS_SEGUIMIENTO);
   seg.getRange('B:B').setNumberFormat('@'); // fecha ISO como texto
   generarCodigos();
@@ -291,7 +304,7 @@ function autenticar_(codigo, ctx) {
 
 function perfilPublico_(m, ctx) {
   return {
-    id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, coordina: m.coordinaNombres,
+    id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, cargo: m.cargo, coordina: m.coordinaNombres,
     supervisa: m.supervisaNombres, ve_actividad: areasActividad_(m, ctx).length > 0,
   };
 }
@@ -463,7 +476,7 @@ function miembrosEquipo_(u, ctx) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para ver otros calendarios.');
   return ctx.miembros
     .filter(m => m.activo && m.area && puedeRevisar_(u, m.id, m.area, ctx))
-    .map(m => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol }))
+    .map(m => ({ id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, cargo: m.cargo }))
     .sort((a, b) => a.area.localeCompare(b.area) || a.nombre.localeCompare(b.nombre));
 }
 
@@ -507,7 +520,8 @@ function revisar_(u, d, ctx) {
  */
 function resumen_(u, d, ctx) {
   const rolDe = id => (ctx.porId[id] && ctx.porId[id].rol) || 'miembro';
-  let base = leerRegistros_().map(r => Object.assign(r, { rol: rolDe(r.miembro_id) }));
+  const cargoDe = id => (ctx.porId[id] && ctx.porId[id].cargo) || '';
+  let base = leerRegistros_().map(r => Object.assign(r, { rol: rolDe(r.miembro_id), cargo: cargoDe(r.miembro_id) }));
   if (!esAdmin_(u)) {
     base = base.filter(r => r.miembro_id === u.id ||
       (u.rol === 'coordinador' && u.coordina.indexOf(normalizar_(r.area)) !== -1));
@@ -525,7 +539,7 @@ function resumen_(u, d, ctx) {
   rs.forEach(r => {
     const mes = r.fecha.slice(0, 7);
     const k = r.miembro_id + '|' + mes;
-    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, rol: r.rol, area: r.area, mes, aprobadas: 0, pendientes: 0 });
+    const pm = porPersonaMes[k] || (porPersonaMes[k] = { miembro: r.miembro, rol: r.rol, cargo: r.cargo, area: r.area, mes, aprobadas: 0, pendientes: 0 });
     const a = porArea[r.area] || (porArea[r.area] = { area: r.area, aprobadas: 0, pendientes: 0 });
     const campo = r.estado === 'aprobado' ? 'aprobadas' : 'pendientes';
     pm[campo] += r.horas; a[campo] += r.horas;
@@ -544,7 +558,7 @@ function resumen_(u, d, ctx) {
     // Incluye los rechazados, con su estado, para poder filtrarlos en Excel.
     salida.detalle = base
       .sort((x, y) => x.fecha.localeCompare(y.fecha) || x.miembro.localeCompare(y.miembro) || x.inicio.localeCompare(y.inicio))
-      .map(r => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol,
+      .map(r => ({ fecha: r.fecha, inicio: r.inicio, fin: r.fin, horas: r.horas, miembro: r.miembro, rol: r.rol, cargo: r.cargo,
         area: r.area, descripcion: r.descripcion, enlace: r.enlace, estado: r.estado,
         revisado_por: r.revisado_por, comentario: r.comentario, tarea: titulos[r.tarea_id] || '' }));
   }
@@ -773,7 +787,7 @@ function puedeAsignarSupervisa_(u, p) {
 /** Persona tal como la ve la planilla. NUNCA incluye el código de acceso. */
 function personaPlanilla_(m, u) {
   return {
-    id: m.id, nombre: m.nombre, email: m.email, area: m.area, rol: m.rol,
+    id: m.id, nombre: m.nombre, email: m.email, area: m.area, rol: m.rol, cargo: m.cargo,
     coordina: m.coordinaNombres, supervisa: m.supervisaNombres, activo: m.activo, tiene_codigo: !!m.codigo,
     editable: puedeGestionar_(u, m), supervisa_editable: puedeAsignarSupervisa_(u, m),
   };
@@ -849,6 +863,13 @@ function aBooleano_(v) {
   throw new ErrorApp('Valor de "activo" inválido.');
 }
 
+/** Cargo (etiqueta) válido: '' o uno de CARGOS. Solo aplica a personas con rol 'miembro'. */
+function validarCargo_(v) {
+  const c = normalizar_(v);
+  if (c && CARGOS.indexOf(c) === -1) throw new ErrorApp('Cargo inválido.');
+  return c;
+}
+
 function exigirRevisor_(u) {
   if (!esRevisor_(u)) throw new ErrorApp('No tienes permiso para gestionar la planilla.');
 }
@@ -880,7 +901,8 @@ function agregarPersona_(u, d) {
     const usados = {};
     miembros.forEach(m => { usados[m.codigo] = true; });
     const codigo = nuevoCodigo_(usados);
-    const fila = { id, nombre, email, area, rol, coordina, codigo, activo: 'sí', supervisa };
+    const cargo = rol === 'miembro' ? validarCargo_(d.cargo) : '';
+    const fila = { id, nombre, email, area, rol, coordina, codigo, activo: 'sí', supervisa, cargo };
     hoja_(HOJA_MIEMBROS).appendRow(COLS_MIEMBROS.map(col => seguro_(fila[col])));
     const persona = leerMiembros_().find(m => m.id === id);
     return { persona: personaPlanilla_(persona, u), codigo };
@@ -914,7 +936,7 @@ function actualizarPersona_(u, d) {
     const { hoja, fila, i, persona } = personaGestionable_(u, id, p => quiereSup && puedeAsignarSupervisa_(u, p));
     if (quiereSup && !puedeAsignarSupervisa_(u, persona)) throw new ErrorApp(MSG_SUPERVISION_RRHH);
     if (!puedeGestionar_(u, persona)) {
-      const otros = ['nombre', 'email', 'area', 'activo', 'rol', 'coordina'].some(hay);
+      const otros = ['nombre', 'email', 'area', 'activo', 'rol', 'coordina', 'cargo'].some(hay);
       if (otros) throw new ErrorApp('De esa persona solo puedes cambiar la supervisión.');
       const solo = Object.assign({}, fila, { supervisa: textoCoordina_(d.supervisa) });
       hoja.getRange(i + 2, 1, 1, COLS_MIEMBROS.length)
@@ -942,6 +964,9 @@ function actualizarPersona_(u, d) {
     }
     if (rol !== 'coordinador') cambios.coordina = '';
     else if (esAdmin_(u) && hay('coordina')) cambios.coordina = textoCoordina_(d.coordina);
+    // El cargo es una etiqueta de miembros: quien gestiona a la persona puede ponerlo o quitarlo.
+    if (rol !== 'miembro') cambios.cargo = '';
+    else if (hay('cargo')) cambios.cargo = validarCargo_(d.cargo);
     const nueva = Object.assign({}, fila, cambios);
     hoja.getRange(i + 2, 1, 1, COLS_MIEMBROS.length)
       .setValues([COLS_MIEMBROS.map(col => seguro_(nueva[col]))]);
@@ -1050,7 +1075,7 @@ function actividad_(u, d, ctx) {
     const dias = a.ultima ? Math.max(0, diasEntre_(a.ultima, hoy)) : null;
     const estado = dias === null ? 'sin_registros' : dias >= umbral ? 'inactivo' : dias >= aviso ? 'en_riesgo' : 'activo';
     return {
-      id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, ultima_fecha: a.ultima, dias_sin_registrar: dias,
+      id: m.id, nombre: m.nombre, area: m.area, rol: m.rol, cargo: m.cargo, ultima_fecha: a.ultima, dias_sin_registrar: dias,
       horas_7d: redondo(a.h7), horas_mes: redondo(a.hMes), tareas_abiertas: t.abiertas, tareas_vencidas: t.vencidas,
       notas: ns.length, ultima_nota: ns.length ? ns[0].nota : '', estado,
     };
@@ -1130,6 +1155,7 @@ function leerMiembros_() {
       coordinaNombres: String(m.coordina || '').split(',').map(x => x.trim()).filter(Boolean),
       supervisa: String(m.supervisa || '').split(',').map(normalizar_).filter(Boolean),
       supervisaNombres: String(m.supervisa || '').split(',').map(x => x.trim()).filter(Boolean),
+      cargo: CARGOS.indexOf(normalizar_(m.cargo)) !== -1 ? normalizar_(m.cargo) : '',
       codigo: String(m.codigo).trim(),
       activo: m.activo === true || /^(si|sí|true|1|x)$/i.test(String(m.activo).trim()),
     }));
